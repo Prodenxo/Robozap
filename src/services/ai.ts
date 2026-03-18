@@ -4,11 +4,6 @@ import { botTexts } from '../config/texts';
 // Function to clean environment variables (removing potential quotes)
 const cleanKey = (key: string | undefined) => key?.replace(/['"]+/g, '').trim() || '';
 
-const openai = new OpenAI({
-  apiKey: cleanKey(process.env.OPENAI_API_KEY),
-  baseURL: 'https://api.groq.com/openai/v1',
-});
-
 const fallbackReplies = [
   "Qual foi, cria? Tô na área, manda a visão!",
   "Fala tu! O que pega de bom hoje?",
@@ -19,7 +14,21 @@ const fallbackReplies = [
 ];
 
 export const getAIResponse = async (prompt: string, personality: string): Promise<string> => {
+  const apiKey = cleanKey(process.env.OPENAI_API_KEY);
+  
+  if (!apiKey || apiKey.length < 5) {
+    console.error('[ROBOZAP ERROR]: Groq API Key is missing or too short! Value:', apiKey);
+    return fallbackReplies[0];
+  }
+
+  const openai = new OpenAI({
+    apiKey: apiKey,
+    baseURL: 'https://api.groq.com/openai/v1',
+  });
+
   try {
+    console.log('[AI SERVICE]: Sending request to Groq Cloud...');
+    
     const response = await openai.chat.completions.create({
       model: "llama3-8b-8192",
       messages: [
@@ -30,9 +39,18 @@ export const getAIResponse = async (prompt: string, personality: string): Promis
       temperature: 0.8,
     });
 
-    return response.choices[0]?.message?.content || fallbackReplies[0];
+    const reply = response.choices[0]?.message?.content;
+    if (!reply) throw new Error('Groq returned empty reply content');
+    
+    console.log('[AI SERVICE]: Success! Response received.');
+    return reply;
   } catch (error: any) {
-    console.error('[GROQ ERROR]:', error.message || error);
+    // THIS LOG IS OUR GOLD! Watch it in Easypanel Logs.
+    console.error('[GROQ FATAL ERROR LOG]:', error.message || error);
+    
+    if (error.status === 401) console.error('DETECTED: Key is INVALID.');
+    if (error.status === 429) console.error('DETECTED: Rate limit reached.');
+    
     return fallbackReplies[Math.floor(Math.random() * fallbackReplies.length)];
   }
 };
