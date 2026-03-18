@@ -111,7 +111,6 @@ export class WhatsAppService {
         number: number
       }, { headers: this.headers });
       
-      // Evolution API can return { pushName: '...' } or { contact: { pushName: '...' } }
       const contact = response.data?.contact || response.data;
       return contact;
     } catch (error) {
@@ -119,28 +118,57 @@ export class WhatsAppService {
     }
   }
 
-  async resolveName(jid: string) {
+  async syncGroupParticipants(groupJid: string) {
+    try {
+      const response = await axios.get(`${this.baseUrl}/group/getParticipants/${this.instance}?groupJid=${groupJid}`, {
+        headers: this.headers
+      });
+      
+      const participants = response.data || [];
+      for (const p of participants) {
+          const jid = p.id || p.jid;
+          const name = p.pushName || p.name || p.verifiedName;
+          if (jid && name) {
+              await (prisma as any).user.upsert({
+                  where: { jid },
+                  update: { pushName: name },
+                  create: { jid, pushName: name }
+              });
+          }
+      }
+      return participants;
+    } catch (error) {
+      console.error('[SYNC ERROR]:', error);
+      return [];
+    }
+  }
+
+  async resolveName(jid: string, groupJid?: string) {
     const number = jid.split('@')[0];
     
     // 1. Check Database
     try {
       const user = await (prisma as any).user.findUnique({ where: { jid } });
-      if (user?.pushName && user.pushName !== 'Usuário') {
+      if (user?.pushName && user.pushName !== 'Usuário' && !user.pushName.includes('@')) {
           return user.pushName;
       }
     } catch (e) {}
 
-    // 2. Try API fallback
+    // 2. Fallback: Sync Group if provided
+    if (groupJid) {
+        await this.syncGroupParticipants(groupJid);
+        const user = await (prisma as any).user.findUnique({ where: { jid } });
+        if (user?.pushName && user.pushName !== 'Usuário') return user.pushName;
+    }
+
+    // 3. Last resort API fallback
     const contact = await this.getContact(number);
     if (contact?.pushName) {
-        // Save to DB for future
-        try {
-          await (prisma as any).user.upsert({
-              where: { jid },
-              update: { pushName: contact.pushName },
-              create: { jid, pushName: contact.pushName }
-          });
-        } catch (e) {}
+        await (prisma as any).user.upsert({
+            where: { jid },
+            update: { pushName: contact.pushName },
+            create: { jid, pushName: contact.pushName }
+        });
         return contact.pushName;
     }
 

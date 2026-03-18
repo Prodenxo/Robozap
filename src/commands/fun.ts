@@ -21,7 +21,7 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
       const luckyOne = allParts[Math.floor(Math.random() * allParts.length)];
       if (!luckyOne) return true;
 
-      const name = await whatsapp.resolveName(luckyOne.userJid);
+      const name = await whatsapp.resolveName(luckyOne.userJid, msg.remoteJid);
       const mentionJid = luckyOne.userJid;
 
       const response = `🎯 *CHANCE DE: ${query.toUpperCase()}*\n\n📈 Resultado: *${percentage}%*\n🕵️ Provável culpado: @${name}`;
@@ -47,7 +47,7 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
         const mentionList = chosen.map((u: any) => u.userJid);
         
         const winnersText = await Promise.all(chosen.map(async (u: any) => {
-            const resolved = await whatsapp.resolveName(u.userJid);
+            const resolved = await whatsapp.resolveName(u.userJid, msg.remoteJid);
             return `@${resolved}`;
         })).then(names => names.join(', '));
 
@@ -97,8 +97,8 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
 
         const mentioned = msg.mentionedJid || [];
         if (mentioned.length >= 2) {
-          const nameA = await whatsapp.resolveName(mentioned[0]);
-          const nameB = await whatsapp.resolveName(mentioned[1]);
+          const nameA = await whatsapp.resolveName(mentioned[0], msg.remoteJid);
+          const nameB = await whatsapp.resolveName(mentioned[1], msg.remoteJid);
           u1Data = { jid: mentioned[0], display: `@${nameA}` };
           u2Data = { jid: mentioned[1], display: `@${nameB}` };
         } else {
@@ -113,8 +113,8 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
           }
 
           const shuffled = allMembers.sort(() => 0.5 - Math.random());
-          const name1 = await whatsapp.resolveName(shuffled[0].userJid);
-          const name2 = await whatsapp.resolveName(shuffled[1].userJid);
+          const name1 = await whatsapp.resolveName(shuffled[0].userJid, msg.remoteJid);
+          const name2 = await whatsapp.resolveName(shuffled[1].userJid, msg.remoteJid);
           u1Data = { jid: shuffled[0].userJid, display: `@${name1}` };
           u2Data = { jid: shuffled[1].userJid, display: `@${name2}` };
         }

@@ -19,7 +19,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
 
   // FUNÇÃO DE MARCAÇÃO BONITA (Nome em vez de ID)
   const getMentionText = async (jid: string) => {
-      const name = await whatsapp.resolveName(jid);
+      const name = await whatsapp.resolveName(jid, msg.remoteJid);
       return `@${name}`;
   };
 
