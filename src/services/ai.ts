@@ -8,17 +8,27 @@ export const getAIResponse = async (prompt: string, personality: string): Promis
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    const systemPrompt = botTexts.identity.systemPrompt.replace('${personality}', personality);
+    const systemPrompt = personality;
     
-    const fullPrompt = `${systemPrompt}\n\nUsuário: ${prompt}\n\nFilhote do Mohammed:`;
+    // Simpler prompt style for stability
+    const fullPrompt = `${systemPrompt}\n\nO usuário falou: "${prompt}". Responda agora como o Filhote do Mohammed:`;
 
     const result = await model.generateContent(fullPrompt);
     const response = await result.response;
     const text = response.text();
 
-    return text || botTexts.ai.errorGeneric;
-  } catch (error) {
-    console.error('Gemini Error:', error);
+    if (!text) throw new Error('Gemini returned empty text');
+
+    return text;
+  } catch (error: any) {
+    // THIS LOG IS KEY: Check it on Easypanel
+    console.error('[AI SERVICE ERROR]:', error.message || error);
+    
+    // If it's 401, the key is wrong.
+    if (error.message?.includes('401')) {
+        console.error('DETECTED: Your Gemini API Key seems to be WRONG/INVALID.');
+    }
+    
     return botTexts.ai.errorGeneric;
   }
 };
