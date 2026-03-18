@@ -19,8 +19,6 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
         await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figStart);
         
         try {
-          // Sending back the base64 or the same image to evolution to convert to sticker
-          // Evolution v2.x supports passing the message content to sendSticker
           await whatsapp.sendSticker(msg.remoteJid, msg.raw); 
         } catch (error) {
           console.error('Sticker Error:', error);
@@ -50,7 +48,11 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
           return true;
         }
 
-        const tempPath = path.join(__dirname, `../../temp_${Date.now()}.mp4`);
+        // Change extension to .mp3 because yt-dlp will save it as mp3
+        const tempPath = path.join(__dirname, `../../temp_${Date.now()}.mp3`);
+        
+        await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaSearch.replace('$query', query));
+
         await media.downloadMusic(url, tempPath);
         
         await whatsapp.sendMedia(msg.remoteJid, tempPath, 'audio');

@@ -1,7 +1,8 @@
-import ytdl from '@distube/ytdl-core';
 import ytSearch from 'yt-search';
-import fs from 'fs';
-import ffmpeg from 'fluent-ffmpeg';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 export class MediaService {
   async searchYouTube(query: string): Promise<string | null> {
@@ -10,33 +11,23 @@ export class MediaService {
   }
 
   async downloadMusic(url: string, outputPath: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        // High quality options but more prone to detection
-        const stream = ytdl(url, {
-          quality: 'highestaudio',
-          filter: 'audioonly',
-        });
-
-        // WRAP IN TRY/CATCH AND EMIT ERROR TO PREVENT CRASH
-        stream.on('error', (err) => {
-           console.error('[YTDL ERROR]:', err.message);
-           reject(new Error('YouTube blocked this download. Try another link or search.'));
-        });
-
-        ffmpeg(stream)
-          .audioBitrate(128)
-          .toFormat('mp4')
-          .on('end', () => resolve())
-          .on('error', (err) => {
-            console.error('[FFMPEG ERROR]:', err);
-            reject(err);
-          })
-          .save(outputPath);
-      } catch (error) {
-        console.error('[MEDIA SERVICE FATAL]:', error);
-        reject(error);
+    try {
+      console.log(`[YT-DLP] Starting download for: ${url}`);
+      
+      // Fast, high-quality audio extraction with yt-dlp
+      // Using -f 'ba' for best audio and --extract-audio
+      const command = `yt-dlp -f 'ba' -x --audio-format mp3 --audio-quality 0 "${url}" -o "${outputPath}" --ffmpeg-location /usr/bin/ffmpeg --no-playlist`;
+      
+      const { stdout, stderr } = await execAsync(command);
+      
+      if (stderr && !stderr.includes('[debug]')) {
+          console.warn('[YT-DLP WARNING]:', stderr);
       }
-    });
+      
+      console.log(`[YT-DLP] Download finished successfully: ${outputPath}`);
+    } catch (error) {
+      console.error('[YT-DLP FATAL ERROR]:', error);
+      throw new Error('Não consegui baixar essa música agora. YouTube tá de marcação!');
+    }
   }
 }
