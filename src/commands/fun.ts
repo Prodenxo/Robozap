@@ -16,12 +16,13 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
       
       const allParts = await (prisma as any).groupParticipant.findMany({ 
           where: { group: { jid: msg.remoteJid } },
-          select: { userJid: true }
+          include: { user: true }
       });
       const luckyOne = allParts[Math.floor(Math.random() * allParts.length)];
+      const name = luckyOne?.user?.pushName || luckyOne?.userJid.split('@')[0] || 'alguém';
       const mentionJid = luckyOne?.userJid;
 
-      const response = `🎯 *CHANCE DE: ${query.toUpperCase()}*\n\n📈 Resultado: *${percentage}%*\n🕵️ Provável culpado: @${mentionJid?.split('@')[0] || 'alguém'}`;
+      const response = `🎯 *CHANCE DE: ${query.toUpperCase()}*\n\n📈 Resultado: *${percentage}%*\n🕵️ Provável culpado: @${name}`;
       await whatsapp.sendMessage(msg.remoteJid, response, mentionJid ? [mentionJid] : []);
       return true;
 
@@ -30,7 +31,7 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
       try {
         const groupUsers = await (prisma as any).groupParticipant.findMany({
           where: { group: { jid: msg.remoteJid } },
-          select: { userJid: true }
+          include: { user: true }
         });
 
         if (groupUsers.length === 0) {
@@ -43,7 +44,7 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
         const chosen = shuffled.slice(0, quantity);
         const mentionList = chosen.map((u: any) => u.userJid);
         
-        const winnersText = chosen.map((u: any) => `@${u.userJid.split('@')[0]}`).join(', ');
+        const winnersText = chosen.map((u: any) => `@${u.user?.pushName || u.userJid.split('@')[0]}`).join(', ');
         await whatsapp.sendMessage(msg.remoteJid, `🎉 *OS SORTEADOS DO FILHOTE SÃO*:\n\n${winnersText}`, mentionList);
       } catch (error) {
         console.error('Sorteio Error:', error);
