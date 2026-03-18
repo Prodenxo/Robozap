@@ -1,76 +1,24 @@
-import OpenAI from 'openai';
-import dotenv from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { botTexts } from '../config/texts';
 
-dotenv.config();
+// Using Gemini API Key (Can be passed via OPENAI_API_KEY environment variable to avoid changing Easypanel config)
+const genAI = new GoogleGenerativeAI(process.env.OPENAI_API_KEY || '');
 
-const prisma = new PrismaClient();
+export const getAIResponse = async (prompt: string, personality: string): Promise<string> => {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-export class AIService {
-  private openai: OpenAI;
+    const systemPrompt = botTexts.identity.systemPrompt.replace('${personality}', personality);
+    
+    const fullPrompt = `${systemPrompt}\n\nUsuário: ${prompt}\n\nFilhote do Mohammed:`;
 
-  constructor() {
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
-    });
+    const result = await model.generateContent(fullPrompt);
+    const response = await result.response;
+    const text = response.text();
+
+    return text || botTexts.ai.error;
+  } catch (error) {
+    console.error('Gemini Error:', error);
+    return botTexts.ai.error;
   }
-
-  async getMiltonResponse(prompt: string, personality: string = 'sarcastic') {
-    const systemPrompt = botTexts.identity.systemPrompt;
-
-    try {
-      const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt }
-        ],
-        max_tokens: 200
-      });
-
-      return response.choices[0].message.content;
-    } catch (error) {
-      console.error('Error in Filhote response:', error);
-      return botTexts.ai.errorBusy;
-    }
-  }
-
-  async summarizeGroup(groupJid: string) {
-    try {
-      const group = await prisma.group.findUnique({
-        where: { jid: groupJid },
-        include: {
-          messages: {
-            orderBy: { timestamp: 'desc' },
-            take: 100 // Summarize last 100 messages
-          }
-        }
-      });
-
-      if (!group || group.messages.length === 0) {
-        return botTexts.ai.errorNoMessages;
-      }
-
-      const conversationText = group.messages
-        .reverse()
-        .map((m: any) => `${m.userJid}: ${m.text}`)
-        .join('\n');
-
-      const systemPrompt = botTexts.identity.summaryPrompt;
-
-      const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Resuma isso aqui:\n\n${conversationText}` }
-        ]
-      });
-
-      return response.choices[0].message.content;
-    } catch (error) {
-      console.error('Error summarizing group:', error);
-      return botTexts.ai.errorGeneric;
-    }
-  }
-}
+};

@@ -14,6 +14,7 @@
   "type": "commonjs",
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",
+    "@google/generative-ai": "^0.3.0",
     "@prisma/client": "^5.10.2",
     "axios": "^1.6.7",
     "dotenv": "^16.4.5",
