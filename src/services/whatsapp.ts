@@ -57,18 +57,28 @@ export class WhatsAppService {
     }
   }
 
-  async sendSticker(remoteJid: string, stickerData: any) {
+  async sendSticker(remoteJid: string, sticker: string | Buffer) {
     try {
-      // If it's a URL or base64 from a previous step, send as is.
-      // Evolution API accepts URL or base64.
-      const sticker = typeof stickerData === 'string' ? stickerData : (stickerData.message?.imageMessage?.url || stickerData);
-
+      const stickerData = typeof sticker === 'string' ? sticker : sticker.toString('base64');
       await axios.post(`${this.baseUrl}/message/sendSticker/${this.instance}`, {
         number: remoteJid,
-        sticker: sticker
+        sticker: stickerData
       }, { headers: this.headers });
     } catch (error: any) {
       console.error('Error sending sticker:', error.response?.data || error.message);
+    }
+  }
+
+  async downloadMedia(msgRaw: any) {
+    try {
+      const response = await axios.post(`${this.baseUrl}/message/downloadMedia/${this.instance}`, {
+        message: msgRaw.message || msgRaw
+      }, { headers: this.headers, responseType: 'arraybuffer' });
+      
+      return Buffer.from(response.data);
+    } catch (error: any) {
+      console.error('Error downloading media:', error.response?.data || error.message);
+      return null;
     }
   }
 

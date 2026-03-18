@@ -54,8 +54,10 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       await whatsapp.deleteMessage(msg.remoteJid, messageId);
       return true;
 
+    case 'todos':
     case 'marcar':
       // Tag All logic - simplistic version fetching from GroupParticipants
+      await whatsapp.syncGroupParticipants(msg.remoteJid);
       const participants: any[] = await (prisma as any).groupParticipant.findMany({ 
         where: { group: { jid: msg.remoteJid } },
         select: { userJid: true }
