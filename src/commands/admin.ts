@@ -1,55 +1,47 @@
 import { WhatsAppService } from '../services/whatsapp';
-import { PrismaClient } from '@prisma/client';
 import { botTexts } from '../config/texts';
+import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
 const whatsapp = new WhatsAppService();
+const prisma = new PrismaClient();
 
 export const handleAdminCommands = async (command: string, args: string[], msg: any) => {
-  const mentionedJids = msg.quoted?.participant ? [msg.quoted.participant] : [];
-  
+  const isGroup = msg.remoteJid.endsWith('@g.us');
+  if (!isGroup) return false;
+
+  const quotedJid = msg.raw?.message?.extendedTextMessage?.contextInfo?.participant;
+  const targetJid = quotedJid || args[0]?.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+
   switch (command) {
-    case 'remover':
-      if (mentionedJids.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, botTexts.admin.noMention);
-        return true;
+    case 'promover':
+      if (!quotedJid) {
+          await whatsapp.sendMessage(msg.remoteJid, "Pô, responde a mensagem da pessoa que tu quer promover!");
+          return true;
       }
-      await whatsapp.sendMessage(msg.remoteJid, botTexts.admin.removerSuccess);
+      await whatsapp.groupUpdateParticipant(msg.remoteJid, 'promote', [quotedJid]);
+      await whatsapp.sendMessage(msg.remoteJid, `👑 Cargo de patrão agora pra você: @${quotedJid.split('@')[0]}!`);
       return true;
 
-    case 'ban':
+    case 'remover':
     case 'banir':
-      if (mentionedJids.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, botTexts.admin.noMention);
-        return true;
+      if (!quotedJid) {
+          await whatsapp.sendMessage(msg.remoteJid, "Responde a mensagem de quem tu quer varrer!");
+          return true;
       }
-      await whatsapp.sendMessage(msg.remoteJid, botTexts.admin.banSuccess);
+      await whatsapp.groupUpdateParticipant(msg.remoteJid, 'remove', [quotedJid]);
+      await whatsapp.sendMessage(msg.remoteJid, `🧹 Varri o @${quotedJid.split('@')[0]} daqui. Sem massagem!`);
+      return true;
+
+    case 'demitir':
+    case 'rebaixar':
+      if (!quotedJid) return true;
+      await whatsapp.groupUpdateParticipant(msg.remoteJid, 'demote', [quotedJid]);
+      await whatsapp.sendMessage(msg.remoteJid, `📉 Perdeu o cargo, @${quotedJid.split('@')[0]}! Volta pra base.`);
       return true;
 
     case 'adv':
-      if (mentionedJids.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, botTexts.admin.noMention);
-        return true;
-      }
-      const target = mentionedJids[0];
-      const updatedUser = await prisma.user.update({
-        where: { jid: target },
-        data: { warnings: { increment: 1 } }
-      });
-      
-      let advMsg = `${botTexts.admin.advSuccess}@${target.split('@')[0]} (${updatedUser.warnings}/3)`;
-      if (updatedUser.warnings >= 3) {
-        advMsg += `\n${botTexts.admin.advLimit}`;
-      }
-      await whatsapp.sendMessage(msg.remoteJid, advMsg);
-      return true;
-
-    case 'promover':
-      if (mentionedJids.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, botTexts.admin.noMention);
-        return true;
-      }
-      await whatsapp.sendMessage(msg.remoteJid, `👑 Agora @${mentionedJids[0].split('@')[0]} é admin da firma!`);
+      if (!quotedJid) return true;
+      await whatsapp.sendMessage(msg.remoteJid, `⚠️ Atenção @${quotedJid.split('@')[0]}, tu tomou uma advertência! Próxima é vala.`);
       return true;
 
     default:

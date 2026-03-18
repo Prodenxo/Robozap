@@ -5,7 +5,6 @@ import path from 'path';
 
 dotenv.config();
 
-// Helper to remove any potential quotes from env variables (common in Easypanel/Docker)
 const cleanValue = (val: string | undefined) => val?.replace(/['"]+/g, '').trim() || '';
 
 export class WhatsAppService {
@@ -19,25 +18,17 @@ export class WhatsAppService {
     this.instance = cleanValue(process.env.EVOLUTION_INSTANCE_NAME);
   }
 
+  private get headers() {
+    return { 'apikey': this.apiKey };
+  }
+
   async sendMessage(remoteJid: string, text: string) {
     try {
-      await axios.post(
-        `${this.baseUrl}/message/sendText/${this.instance}`,
-        {
-          number: remoteJid,
-          text: text,
-          options: {
-            delay: 1200,
-            presence: 'composing',
-            linkPreview: false
-          }
-        },
-        {
-          headers: {
-            'apikey': this.apiKey
-          }
-        }
-      );
+      await axios.post(`${this.baseUrl}/message/sendText/${this.instance}`, {
+        number: remoteJid,
+        text: text,
+        options: { delay: 1200, presence: 'composing', linkPreview: false }
+      }, { headers: this.headers });
     } catch (error: any) {
       console.error('Error sending message:', error.response?.data || error.message);
     }
@@ -45,21 +36,10 @@ export class WhatsAppService {
 
   async sendSticker(remoteJid: string, stickerData: any) {
     try {
-      let stickerPayload: any = { number: remoteJid };
-
-      if (typeof stickerData === 'string') {
-        stickerPayload.sticker = stickerData;
-      } else {
-        stickerPayload.sticker = stickerData;
-      }
-
-      await axios.post(
-        `${this.baseUrl}/message/sendSticker/${this.instance}`,
-        stickerPayload,
-        {
-          headers: { 'apikey': this.apiKey }
-        }
-      );
+      await axios.post(`${this.baseUrl}/message/sendSticker/${this.instance}`, {
+        number: remoteJid,
+        sticker: stickerData.message?.imageMessage?.url || stickerData
+      }, { headers: this.headers });
     } catch (error: any) {
       console.error('Error sending sticker:', error.response?.data || error.message);
     }
@@ -69,25 +49,29 @@ export class WhatsAppService {
     try {
       const mediaBuffer = fs.readFileSync(mediaPath);
       const base64 = mediaBuffer.toString('base64');
-      const fileName = path.basename(mediaPath);
-      const mimeType = type === 'audio' ? 'audio/mpeg' : (type === 'image' ? 'image/jpeg' : 'video/mp4');
-
-      await axios.post(
-        `${this.baseUrl}/message/sendMedia/${this.instance}`,
-        {
-          number: remoteJid,
-          mediatype: type,
-          mimetype: mimeType,
-          caption: type === 'audio' ? '' : 'Enviado por RoboZap',
-          media: base64,
-          fileName: fileName
-        },
-        {
-          headers: { 'apikey': this.apiKey }
-        }
-      );
+      await axios.post(`${this.baseUrl}/message/sendMedia/${this.instance}`, {
+        number: remoteJid,
+        mediatype: type,
+        mimetype: type === 'audio' ? 'audio/mpeg' : (type === 'image' ? 'image/jpeg' : 'video/mp4'),
+        caption: type === 'audio' ? '' : 'Enviado por RoboZap',
+        media: base64,
+        fileName: path.basename(mediaPath)
+      }, { headers: this.headers });
     } catch (error: any) {
       console.error('Error sending media:', error.response?.data || error.message);
+    }
+  }
+
+  // --- ADMIN ACTIONS ---
+  async groupUpdateParticipant(groupJid: string, action: 'add' | 'remove' | 'promote' | 'demote', participants: string[]) {
+    try {
+      await axios.post(`${this.baseUrl}/group/updateParticipant/${this.instance}`, {
+        groupJid: groupJid,
+        action: action,
+        participants: participants
+      }, { headers: this.headers });
+    } catch (error: any) {
+      console.error(`Error ${action} participant:`, error.response?.data || error.message);
     }
   }
 }
