@@ -1,27 +1,24 @@
 import { WhatsAppService } from '../services/whatsapp';
 import { botTexts } from '../config/texts';
-import { PrismaClient } from '@prisma/client';
 
 const whatsapp = new WhatsAppService();
-const prisma = new PrismaClient();
 
 export const handleAdminCommands = async (command: string, args: string[], msg: any) => {
   const isGroup = msg.remoteJid.endsWith('@g.us');
   if (!isGroup) return false;
 
-  // Evolution API v2 Context Info for mentions or replies
-  const contextInfo = msg.raw?.message?.extendedTextMessage?.contextInfo || msg.raw?.message?.contextInfo;
+  // Extraction of target from our updated webhook info
+  const targetJid = msg.quotedParticipant || msg.mentionedJid?.[0];
   
-  // Extract Target: Mentions or Reply
-  const mentionedJid = contextInfo?.mentionedJid?.[0]; // First mentioned user (@user)
-  const quotedJid = contextInfo?.participant; // Author of quoted message (Reply)
-  
-  const targetJid = quotedJid || mentionedJid;
+  // LOGGING TO HELP US FIX IT IF IT FAILS
+  if (['promover', 'banir', 'remover', 'demitir', 'rebaixar'].includes(command)) {
+      console.log(`[ADMIN COMMAND] ${command} | Target Found: ${targetJid}`);
+  }
 
   switch (command) {
     case 'promover':
       if (!targetJid) {
-          await whatsapp.sendMessage(msg.remoteJid, "Pô, marca a pessoa ou responde a mensagem de quem tu quer promover!");
+          await whatsapp.sendMessage(msg.remoteJid, "Pô, marca a pessoa (@pessoa) ou responde a mensagem de quem tu quer promover!");
           return true;
       }
       await whatsapp.groupUpdateParticipant(msg.remoteJid, 'promote', [targetJid]);
@@ -31,7 +28,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
     case 'remover':
     case 'banir':
       if (!targetJid) {
-          await whatsapp.sendMessage(msg.remoteJid, "Marca ou responde a mensagem de quem tu quer varrer!");
+          await whatsapp.sendMessage(msg.remoteJid, "Marca (@pessoa) ou responde a mensagem de quem tu quer varrer!");
           return true;
       }
       await whatsapp.groupUpdateParticipant(msg.remoteJid, 'remove', [targetJid]);
