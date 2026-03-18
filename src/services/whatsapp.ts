@@ -78,7 +78,7 @@ export class WhatsAppService {
 
   async deleteMessage(remoteJid: string, messageId: string) {
     try {
-      await axios.post(`${this.baseUrl}/chat/deleteMessage/${this.instance}`, {
+      await axios.post(`${this.baseUrl}/chat/deleteMessageForEveryOne/${this.instance}`, {
         number: remoteJid,
         messageId: messageId
       }, { headers: this.headers });
