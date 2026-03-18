@@ -19,9 +19,8 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
 
   // FUNÇÃO DE MARCAÇÃO BONITA (Nome em vez de ID)
   const getMentionText = async (jid: string) => {
-      const user = await (prisma as any).user.findUnique({ where: { jid } });
-      const identifier = user?.pushName || jid.split('@')[0];
-      return `@${identifier}`;
+      const name = await whatsapp.resolveName(jid);
+      return `@${name}`;
   };
 
   switch (command) {

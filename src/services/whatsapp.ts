@@ -2,6 +2,7 @@ import axios from 'axios';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import { prisma } from './database';
 
 dotenv.config();
 
@@ -102,5 +103,47 @@ export class WhatsAppService {
     } catch (error: any) {
       console.error('Error sending media:', error.response?.data || error.message);
     }
+  }
+
+  async getContact(number: string) {
+    try {
+      const response = await axios.post(`${this.baseUrl}/contact/getContact/${this.instance}`, {
+        number: number
+      }, { headers: this.headers });
+      
+      // Evolution API can return { pushName: '...' } or { contact: { pushName: '...' } }
+      const contact = response.data?.contact || response.data;
+      return contact;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  async resolveName(jid: string) {
+    const number = jid.split('@')[0];
+    
+    // 1. Check Database
+    try {
+      const user = await (prisma as any).user.findUnique({ where: { jid } });
+      if (user?.pushName && user.pushName !== 'Usuário') {
+          return user.pushName;
+      }
+    } catch (e) {}
+
+    // 2. Try API fallback
+    const contact = await this.getContact(number);
+    if (contact?.pushName) {
+        // Save to DB for future
+        try {
+          await (prisma as any).user.upsert({
+              where: { jid },
+              update: { pushName: contact.pushName },
+              create: { jid, pushName: contact.pushName }
+          });
+        } catch (e) {}
+        return contact.pushName;
+    }
+
+    return number;
   }
 }
