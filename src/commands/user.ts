@@ -43,66 +43,49 @@ export const handleUserCommands = async (command: string, args: string[], msg: a
       return true;
 
     case 'bio':
-      if (args.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, "Solta tua bio aí depois do .bio");
-        return true;
-      }
-      const bioContent = args.join(' ');
-      await (prisma as any).groupParticipant.upsert({
-        where: { groupId_userJid: { groupId: msg.remoteJid, userJid } }, // Note: assuming groupId is the CID for upsert link
-        update: { bioText: bioContent },
-        create: { 
-            group: { connect: { jid: msg.remoteJid } },
-            user: { connect: { jid: userJid } },
-            bioText: bioContent 
-        }
-      });
-      await whatsapp.sendMessage(msg.remoteJid, "Bio atualizada com sucesso! ✅");
-      return true;
-
     case 'niver':
-      if (args.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, "Manda a data (DD/MM). Ex: .niver 10/05");
-      } else {
-        const date = args[0];
-        if (!/^\d{2}\/\d{2}$/.test(date)) {
-          await whatsapp.sendMessage(msg.remoteJid, "Formato errado! Tenta DD/MM.");
-        } else {
-          await (prisma as any).groupParticipant.upsert({
-            where: { groupId_userJid: { groupId: msg.remoteJid, userJid } },
-            update: { birthday: date },
-            create: { group: { connect: { jid: msg.remoteJid } }, user: { connect: { jid: userJid } }, birthday: date }
-          });
-          await whatsapp.sendMessage(msg.remoteJid, `Aniversário salvo: ${date}! 🎂`);
-        }
-      }
-      return true;
-
     case 'ig':
-      if (args.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, "Manda seu @ do Insta depois do .ig");
-      } else {
-        const ig = args[0].replace('@', '');
-        await (prisma as any).groupParticipant.upsert({
-          where: { groupId_userJid: { groupId: msg.remoteJid, userJid } },
-          update: { instagram: ig },
-          create: { group: { connect: { jid: msg.remoteJid } }, user: { connect: { jid: userJid } }, instagram: ig }
-        });
-        await whatsapp.sendMessage(msg.remoteJid, `Insta salvo: @${ig}! 📸`);
-      }
-      return true;
-
+    case 'meuig':
     case 'local':
-      if (args.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, "Onde tu mora? Escreve depois do .local");
-      } else {
-        const loc = args.join(' ');
+    case 'ignoreme':
+      try {
+        const group = await (prisma as any).group.findUnique({ where: { jid: msg.remoteJid } });
+        if (!group) return true;
+
+        const data: any = {};
+        if (command === 'bio') data.bioText = args.join(' ');
+        if (command === 'niver') {
+          if (!/^\d{2}\/\d{2}$/.test(args[0])) {
+            await whatsapp.sendMessage(msg.remoteJid, "Formato errado! Tenta DD/MM.");
+            return true;
+          }
+          data.birthday = args[0];
+        }
+        if (command === 'ig' || command === 'meuig') data.instagram = args[0]?.replace('@', '');
+        if (command === 'local') data.location = args.join(' ');
+        if (command === 'ignoreme') data.ignoreMentions = args[0] === 'on';
+
         await (prisma as any).groupParticipant.upsert({
-          where: { groupId_userJid: { groupId: msg.remoteJid, userJid } },
-          update: { location: loc },
-          create: { group: { connect: { jid: msg.remoteJid } }, user: { connect: { jid: userJid } }, location: loc }
+          where: { groupId_userJid: { groupId: group.id, userJid } },
+          update: data,
+          create: { 
+            group: { connect: { id: group.id } }, 
+            user: { connect: { jid: userJid } }, 
+            ...data 
+          }
         });
-        await whatsapp.sendMessage(msg.remoteJid, `Localização salva: ${loc}! 📍`);
+
+        const successMsgs: Record<string, string> = {
+          bio: "Bio atualizada com sucesso! ✅",
+          niver: `Aniversário salvo: ${data.birthday}! 🎂`,
+          ig: `Insta salvo: @${data.instagram}! 📸`,
+          meuig: `Insta salvo: @${data.instagram}! 📸`,
+          local: `Localização salva: ${data.location}! 📍`,
+          ignoreme: `IgnoreMe ${data.ignoreMentions ? 'ATIVADO 🛡️' : 'DESATIVADO 📢'}`
+        };
+        await whatsapp.sendMessage(msg.remoteJid, successMsgs[command]);
+      } catch (e) {
+        console.error(`Error in ${command}:`, e);
       }
       return true;
 
@@ -122,16 +105,6 @@ export const handleUserCommands = async (command: string, args: string[], msg: a
       });
       const locText = participantsLoc.map((p: any) => `📍 ${p.location} (${p.user?.pushName || p.userJid.split('@')[0]})`).join('\n');
       await whatsapp.sendMessage(msg.remoteJid, `📍 *ONDE A RAPAZIADA MORA:*\n\n${locText || 'Ninguém avisou ainda.'}`);
-      return true;
-
-    case 'ignoreme':
-      const mode = args[0] === 'on';
-      await (prisma as any).groupParticipant.upsert({
-        where: { groupId_userJid: { groupId: msg.remoteJid, userJid } },
-        update: { ignoreMentions: mode },
-        create: { group: { connect: { jid: msg.remoteJid } }, user: { connect: { jid: userJid } }, ignoreMentions: mode }
-      });
-      await whatsapp.sendMessage(msg.remoteJid, `IgnoreMe ${mode ? 'ATIVADO 🛡️' : 'DESATIVADO 📢'}`);
       return true;
 
     default:

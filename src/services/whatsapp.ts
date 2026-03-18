@@ -78,11 +78,15 @@ export class WhatsAppService {
 
   async deleteMessage(remoteJid: string, messageId: string) {
     try {
-      await axios.post(`${this.baseUrl}/chat/deleteMessage/${this.instance}`, {
-        number: remoteJid,
-        messageId: messageId,
-        all: true
-      }, { headers: this.headers });
+      // Em versões recentes da Evolution API v1, o método é DELETE
+      await axios.delete(`${this.baseUrl}/chat/deleteMessage/${this.instance}`, {
+        data: {
+          number: remoteJid,
+          messageId: messageId,
+          all: true
+        },
+        headers: this.headers
+      });
     } catch (error: any) {
       console.error('Error deleting message:', error.response?.data || error.message);
     }
