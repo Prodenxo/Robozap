@@ -22,12 +22,17 @@ export class WhatsAppService {
     return { 'apikey': this.apiKey };
   }
 
-  async sendMessage(remoteJid: string, text: string) {
+  async sendMessage(remoteJid: string, text: string, mentions: string[] = []) {
     try {
       await axios.post(`${this.baseUrl}/message/sendText/${this.instance}`, {
         number: remoteJid,
         text: text,
-        options: { delay: 1200, presence: 'composing', linkPreview: false }
+        options: { 
+            delay: 1200, 
+            presence: 'composing', 
+            linkPreview: false,
+            mentions: mentions // Agora o WhatsApp entende a marcação!
+        }
       }, { headers: this.headers });
     } catch (error: any) {
       console.error('Error sending message:', error.response?.data || error.message);
@@ -62,7 +67,6 @@ export class WhatsAppService {
     }
   }
 
-  // --- ADMIN ACTIONS ---
   async groupUpdateParticipant(groupJid: string, action: 'add' | 'remove' | 'promote' | 'demote', participants: string[]) {
     try {
       await axios.post(`${this.baseUrl}/group/updateParticipant/${this.instance}`, {

@@ -10,10 +10,12 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
   // Extraction of target from our updated webhook info
   const targetJid = msg.quotedParticipant || msg.mentionedJid?.[0];
   
-  // LOGGING TO HELP US FIX IT IF IT FAILS
   if (['promover', 'banir', 'remover', 'demitir', 'rebaixar'].includes(command)) {
       console.log(`[ADMIN COMMAND] ${command} | Target Found: ${targetJid}`);
   }
+
+  // Helper for pretty mentions
+  const mention = (jid: string) => `@${jid.split('@')[0]}`;
 
   switch (command) {
     case 'promover':
@@ -22,7 +24,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
           return true;
       }
       await whatsapp.groupUpdateParticipant(msg.remoteJid, 'promote', [targetJid]);
-      await whatsapp.sendMessage(msg.remoteJid, `👑 Cargo de patrão agora pra você: @${targetJid.split('@')[0]}!`);
+      await whatsapp.sendMessage(msg.remoteJid, `👑 Cargo de patrão agora pra você: ${mention(targetJid)}!`, [targetJid]);
       return true;
 
     case 'remover':
@@ -32,19 +34,19 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
           return true;
       }
       await whatsapp.groupUpdateParticipant(msg.remoteJid, 'remove', [targetJid]);
-      await whatsapp.sendMessage(msg.remoteJid, `🧹 Varri o @${targetJid.split('@')[0]} daqui. Sem massagem!`);
+      await whatsapp.sendMessage(msg.remoteJid, `🧹 Varri o ${mention(targetJid)} daqui. Sem massagem!`, [targetJid]);
       return true;
 
     case 'demitir':
     case 'rebaixar':
       if (!targetJid) return true;
       await whatsapp.groupUpdateParticipant(msg.remoteJid, 'demote', [targetJid]);
-      await whatsapp.sendMessage(msg.remoteJid, `📉 Perdeu o cargo, @${targetJid.split('@')[0]}! Volta pra base.`);
+      await whatsapp.sendMessage(msg.remoteJid, `📉 Perdeu o cargo, ${mention(targetJid)}! Volta pra base.`, [targetJid]);
       return true;
 
     case 'adv':
       if (!targetJid) return true;
-      await whatsapp.sendMessage(msg.remoteJid, `⚠️ Atenção @${targetJid.split('@')[0]}, tu tomou uma advertência! Próxima é vala.`);
+      await whatsapp.sendMessage(msg.remoteJid, `⚠️ Atenção ${mention(targetJid)}, tu tomou uma advertência! Próxima é vala.`, [targetJid]);
       return true;
 
     default:
