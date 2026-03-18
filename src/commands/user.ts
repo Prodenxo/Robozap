@@ -7,54 +7,86 @@ const prisma = new PrismaClient();
 
 export const handleUserCommands = async (command: string, args: string[], msg: any) => {
   const userJid = msg.participant || msg.remoteJid;
+  const isADM = msg.remoteJid.endsWith('@g.us');
 
   switch (command) {
     case 'vencimento':
-      // Dummy check for expiration
-      await whatsapp.sendMessage(msg.remoteJid, botTexts.general.vencimentoPlaceholder.replace('[status]', 'Ativa (VIP Infinito)'));
+      await whatsapp.sendMessage(msg.remoteJid, botTexts.general.vencimentoAtiva);
       return true;
 
     case 'meusdados':
+    case 'dados':
       try {
-        const stats = await prisma.stats.findMany({
-          where: { userJid: userJid }
-        });
-        const totalMessages = stats.length;
+        const statsCount = await prisma.groupMessage.count({ where: { userJid } });
+        const user = await prisma.user.findUnique({ where: { jid: userJid } });
         
-        await whatsapp.sendMessage(msg.remoteJid, 
-          `${botTexts.user.meusdadosHeader}\n\n` +
+        const response = `${botTexts.user.meusdadosHeader}\n\n` +
           `👤 *Nome:* ${msg.pushName}\n` +
-          `📱 *JID:* ${userJid.split('@')[0]}\n` +
-          `💬 *Mensagens enviadas:* ${totalMessages}\n` +
-          `📅 *Assinatura:* Ativa`
-        );
-      } catch (error) {
-        console.error('MeusDados Error:', error);
-        await whatsapp.sendMessage(msg.remoteJid, botTexts.user.meusdadosNoData);
+          `💬 *Mensagens:* ${statsCount}\n` +
+          `⚠️ *Advertências:* ${user?.warnings || 0}\n` +
+          `🎂 *Niver:* ${user?.birthday || 'Não cadastrado'}\n` +
+          `📸 *IG:* ${user?.instagram || 'N/A'}\n` +
+          `📍 *Local:* ${user?.location || 'N/A'}`;
+        
+        await whatsapp.sendMessage(msg.remoteJid, response);
+      } catch (e) {
+        console.error(e);
       }
       return true;
 
     case 'bio':
       if (args.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, botTexts.user.bioNoText);
+        await whatsapp.sendMessage(msg.remoteJid, "Solta tua bio aí depois do .bio");
         return true;
       }
-      const bio = args.join(' ');
-      // Logic would update DB here
+      await prisma.user.update({ where: { jid: userJid }, data: { bio: args.join(' ') } });
       await whatsapp.sendMessage(msg.remoteJid, botTexts.user.bioSuccess);
       return true;
 
     case 'niver':
+      if (args[0] === 'excluir' || command === 'niver.excluir') {
+        await prisma.user.update({ where: { jid: userJid }, data: { birthday: null } });
+        await whatsapp.sendMessage(msg.remoteJid, botTexts.user.niverExcluir);
+      } else {
+        const date = args[0];
+        if (!/^\d{2}\/\d{2}$/.test(date)) {
+          await whatsapp.sendMessage(msg.remoteJid, "Pô, manda DD/MM. Ex: .niver 15/08");
+        } else {
+          await prisma.user.update({ where: { jid: userJid }, data: { birthday: date } });
+          await whatsapp.sendMessage(msg.remoteJid, `${botTexts.user.niverSuccess}${date}!`);
+        }
+      }
+      return true;
+
+    case 'ig':
       if (args.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, botTexts.user.niverFormatError);
-        return true;
+        // List all IGs
+        const users = await prisma.user.findMany({ where: { instagram: { not: null } }, select: { pushName: true, instagram: true } });
+        const list = users.map(u => `📸 ${u.pushName}: @${u.instagram}`).join('\n');
+        await whatsapp.sendMessage(msg.remoteJid, `📸 *Lista do Insta:*\n\n${list || 'Ninguém cadastrou nada ainda.'}`);
+      } else {
+        const ig = args[0].replace('@', '');
+        await prisma.user.update({ where: { jid: userJid }, data: { instagram: ig } });
+        await whatsapp.sendMessage(msg.remoteJid, `${botTexts.user.igSuccess}${ig}!`);
       }
-      const date = args[0];
-      if (!/^\d{2}\/\d{2}$/.test(date)) {
-          await whatsapp.sendMessage(msg.remoteJid, botTexts.user.niverFormatError);
-          return true;
+      return true;
+
+    case 'local':
+      if (args.length === 0) {
+        const users = await prisma.user.findMany({ where: { location: { not: null } }, select: { pushName: true, location: true } });
+        const list = users.map(u => `📍 ${u.pushName}: ${u.location}`).join('\n');
+        await whatsapp.sendMessage(msg.remoteJid, `📍 *Onde a rapaziada mora:*\n\n${list || 'Ninguém avisou.'}`);
+      } else {
+        const local = args.join(' ');
+        await prisma.user.update({ where: { jid: userJid }, data: { location: local } });
+        await whatsapp.sendMessage(msg.remoteJid, `${botTexts.user.localSuccess}${local}!`);
       }
-      await whatsapp.sendMessage(msg.remoteJid, `${botTexts.user.niverSuccess}${date}!`);
+      return true;
+
+    case 'ignoreme':
+      const mode = args[0] === 'on';
+      await prisma.user.update({ where: { jid: userJid }, data: { ignoreMe: mode } });
+      await whatsapp.sendMessage(msg.remoteJid, `${botTexts.user.ignoreMe}${mode ? 'ATIVADO 🛡️' : 'DESATIVADO 📢'}`);
       return true;
 
     default:

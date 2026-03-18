@@ -7,39 +7,64 @@ export const botTexts = {
   },
 
   general: {
-    menu: `🌟 *BOT - Comandos Disponíveis* 🌟
+    menu: `🌟 *FILHOTE DO MOHAMMED - Menu de Mandamentos* 🌟
 
 🔅 *USO GERAL* 🔅
 
-📝 _*Ajuda*_
 🤖 *.menu*
-Mostra essa visão aí pra tu.
+Exibe esse menu. Use *.menu off* para os administradores desativarem a chamada por membros.
 
 🤖 *.vencimento*
-Mostra como tá tua assinatura.
+Exibe o status da assinatura do FILHOTE no grupo.
 
-🤖 *.ajuda* [pergunta]
-Tira tua dúvida sem enrolação.
+🤖 *.filhote.ajuda* [pergunta]
+Tira tuas dúvidas sobre os comandos fazendo uma pergunta pro brabo.
 
 🤖 *.filhote*
-Troca ideia com o Filhote.
+Conversa com o cria mais debochado que tu já viu. 
+* .filhote - Mostra modos de conversa.
+* .filhote off off - Desativa conversa.
+* .filhote on on - Ativa conversa real (IA) e natural.
 
 🤖 *.resumir*
-Puxa o resumão da resenha.
+Puxa o resumão da resenha de forma dinâmica e engraçada.
 
-(e muitos outros comandos disponíveis...)`,
+📝 _*Informações pessoais*_
+🤖 *.meusdados* - Teu status no grupo.
+🤖 *.bio* - Configura teu perfil.
+🤖 *.niver* [DD/MM] - Marca teu aniversário.
+🤖 *.nivers* - Lista os aniversariantes (hoje/mês/ano).
+🤖 *.signos* - Vê a constelação da rapaziada.
+🤖 *.ig* [@user] - Teu Instagram na pista.
+🤖 *.local* [bairro] - De onde tu é?
+🤖 *.radio* - Playlist da rapaziada.
+🤖 *.ignoreme* [on/off] - Instrua o bot a não te marcar.
 
-    testReplies: [
-      "Fala tu!",
-      "Salve, cria!",
-      "Tô na área!",
-      "Manda a visão!",
-      "Tô por aqui, pô!",
-      "Qual foi?"
-    ],
-    ajudaUsage: ".ajuda [pergunta]",
-    ajudaPlaceholder: "Manda tua dúvida sobre o bot que eu desenrolo.",
-    vencimentoPlaceholder: "Tua assinatura tá nesse pique aqui: [status]."
+👬 _*Interação social*_
+🤖 *.roles* - Lista os rolês marcados.
+🤖 *.role.vou* [ID] - Confirma tua presença.
+🤖 *.role.nvou* [ID] - Desiste do rolê.
+🤖 *.nicho.entrar* [código] - Entra numa lista/nicho.
+
+🎁 _*Entretenimento*_
+🤖 *.chance* [pergunta] - Vê se vai dar bom.
+🤖 *.sortear* [texto] - Escolhe alguém do grupo.
+🤖 *.dado* / *.moeda* - Joga a sorte pro alto.
+🤖 *.versiculo* - Uma palavra amiga.
+🤖 *.sortedodia* - Biscoito da sorte de cria.
+🤖 *.musica* [nome] - Baixa do YT na hora.
+🤖 *.fig* - Faz figurinha de foto/vídeo.
+
+❓ _*Diversos*_
+🤖 *.transcrever* - Ouve áudio por tu.
+🤖 *.admins* - Chama os donos do morro.
+🤖 *.teste* - Vê se o bot tá on.
+
+_Dúvidas? Manda um zap pro Mohammed._`,
+    
+    vencimentoAtiva: "✅ Tua assinatura tá nesse pique aqui: Ativa (VIP Infinito) 🫥",
+    vencimentoExpirada: "🫥 Tua assinatura expirou, paizão! Renova aí pra voltar o deboche.",
+    menuDisabled: "⚠️ Os ADMs desativaram o menu geral pra não poluir. Manda no PV!"
   },
 
   ai: {
@@ -51,47 +76,29 @@ Puxa o resumão da resenha.
   },
 
   user: {
-    meusdadosNoData: "Ainda não peguei teus dados, não. Mande umas mensagens primeiro!",
     meusdadosHeader: "📊 *Teus Dados no Grupo* 📊",
-    bioNoText: "Solta tua bio aí depois do comando .bio",
     bioSuccess: "✅ Bio atualizada certinho, meu cria!",
-    niverFormatError: "Manda a data no formato DD/MM, pô. Ex: .niver 15/08",
-    niverSuccess: "✅ Teu aniversário ficou marcado pra "
+    niverSuccess: "✅ Teu aniversário ficou marcado pra ",
+    niverExcluir: "🗑️ Teu niver foi varrido da lista.",
+    igSuccess: "📸 Insta cadastrado: @",
+    localSuccess: "📍 Local salvo: ",
+    ignoreMe: "🛡️ Modo invisível: "
   },
 
   fun: {
-    chanceNoText: "🎲 .chance [manda tua pergunta aí]",
     chanceHeader: "🔮 *Chance* de ",
     sortearResult: "🎉 Os sorteado da vez são: ",
-    dadoResult: "🎲 Joguei o *D$sides* aqui e caiu: ",
-    moedaResult: "🪙 Girei a moeda... caiu "
-  },
-
-  social: {
-    igList: "📸 Lista dos Insta:",
-    igSuccess: "📸 Insta cadastrado certinho: @",
-    localList: "📍 Local da rapaziada:",
-    localSuccess: "📍 Local salvo: ",
-    radio: `🎵 *Rádio da Rapaziada* 🎵\n\nLink: [Spotify](https://spotify.com/playlist/...)`,
-    roles: `👬 *Rolê marcado* 👬\n\n- Cod: R001: Churrasco no Sábado\n- Cod: R002: Cinema na Sexta`
-  },
-
-  media: {
-    figStart: "⏳ Já vou transformar tua imagem em figurinha, segura aí...",
-    figErrorNoImage: "❌ Manda uma imagem ou responde uma com .fig, pô.",
-    figErrorGeneric: "❌ Deu ruim na hora de fazer a figurinha.",
-    musicaNoText: "❌ Manda o nome da música ou joga o link do YouTube aí.",
-    musicaSearch: "🔍 Tô caçando \"$query\" no YouTube...",
-    musicaSending: "🚀 Já tô mandando o áudio aí...",
-    musicaErrorNotFound: "❌ Não achei nada com esse nome, não.",
-    musicaErrorGeneric: "❌ Deu ruim pra baixar a música."
+    versiculo: "📖 *Versículo do Dia:* ",
+    sortedodia: "🍪 *Biscoito do Cria:* "
   },
 
   admin: {
-    noMention: "Tem que marcar ou responder a pessoa pra remover ou banir, meu mano.",
     removerSuccess: "🚀 Foi de arrasta pra fora do grupo!",
     banSuccess: "🚫 Já era, foi banido sem volta.",
     advSuccess: "⚠️ Advertência anotada pra ",
-    advLimit: "❗ Passou do limite, paizão. Banindo..."
+    advLimit: "❗ Passou do limite, paizão. Banindo...",
+    promoverSuccess: "👑 Cargo de patrão agora pra você: ",
+    rebaixarSuccess: "📉 Perdeu o cargo! Volta pra base.",
+    marcaOnOff: "📢 Marcação geral: "
   }
 };
