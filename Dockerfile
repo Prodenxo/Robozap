@@ -1,24 +1,24 @@
 # Build stage
-FROM node:18-slim AS builder
+FROM node:18 AS builder
 
 WORKDIR /app
 
 # Install dependencies for building
 COPY package*.json ./
 COPY prisma ./prisma
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 # Copy source and build
 COPY . .
-RUN npm run build
 RUN npx prisma generate
+RUN npm run build
 
 # Production stage
 FROM node:18-slim
 
 WORKDIR /app
 
-# Install FFmpeg and clean up
+# Install FFmpeg
 RUN apt-get update && \
     apt-get install -y ffmpeg && \
     apt-get clean && \
