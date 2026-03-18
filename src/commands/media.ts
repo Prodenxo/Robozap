@@ -27,20 +27,26 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
       const mediaContent = findMedia(msgContent);
       const quotedMediaContent = findMedia(quotedContent);
       
-      const hasImage = !!(mediaContent?.imageMessage || quotedMediaContent?.imageMessage || (!mediaContent?.stickerMessage && (mediaContent || quotedMediaContent)));
-      const hasSticker = !!(mediaContent?.stickerMessage || quotedMediaContent?.stickerMessage);
+      const targetMedia = quotedMediaContent || mediaContent;
       
-      if (mediaContent || quotedMediaContent) {
+      if (targetMedia) {
         await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figStart);
         try {
           // Identify which ID to use
-          const targetMessageId = (msgContent.imageMessage || msgContent.stickerMessage) ? msg.id : msg.quotedId;
-          
-          console.log(`[MEDIA] .fig command. Target ID: ${targetMessageId}, IsQuoted: ${!!msg.quotedId}`);
+          const isQuoted = !!quotedMediaContent;
+          const targetMessageId = isQuoted ? msg.quotedId : msg.id;
           
           if (!targetMessageId) throw new Error('No message ID found for media');
 
-          const base64 = await whatsapp.getBase64FromMessage(targetMessageId);
+          const key = {
+              id: targetMessageId,
+              remoteJid: msg.remoteJid,
+              fromMe: false // Most common case, we'll try this first
+          };
+
+          console.log(`[MEDIA] .fig command. Target ID: ${targetMessageId}, IsQuoted: ${isQuoted}`);
+          
+          const base64 = await whatsapp.getBase64FromMessage(key);
           if (base64) {
             await whatsapp.sendSticker(msg.remoteJid, base64);
           } else {
