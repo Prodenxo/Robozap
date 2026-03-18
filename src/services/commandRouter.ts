@@ -16,16 +16,16 @@ interface MessageData {
   pushName: string;
   text: string;
   quoted?: any;
-  quotedParticipant?: string; // ADDED
-  mentionedJid?: string[];   // ADDED
+  quotedParticipant?: string;
+  mentionedJid?: string[];
   messageType: string;
   raw: any;
 }
 
 export const processMessage = async (msg: MessageData) => {
-  // Always track stats if it's a group
+  // Always track stats if it's a group, capturing their pushName for future mentions
   if (msg.remoteJid.endsWith('@g.us')) {
-    await stats.trackMessage(msg.participant, msg.remoteJid, msg.id, msg.text);
+    await stats.trackMessage(msg.participant, msg.remoteJid, msg.id, msg.text, msg.pushName);
   }
 
   const prefix = '.';
