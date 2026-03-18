@@ -1,7 +1,11 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 import { botTexts } from '../config/texts';
 
-const genAI = new GoogleGenerativeAI(process.env.OPENAI_API_KEY || '');
+// Using Groq API Key through the OpenAI Client (Groq is compatible)
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || '',
+  baseURL: 'https://api.groq.com/openai/v1', // Using Groq's super fast API
+});
 
 const fallbackReplies = [
   "Qual foi, cria? Tô na área, manda a visão!",
@@ -14,16 +18,19 @@ const fallbackReplies = [
 
 export const getAIResponse = async (prompt: string, personality: string): Promise<string> => {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const response = await openai.chat.completions.create({
+      model: "llama-3.1-70b-versatile", // Using Llama 3 on Groq (Fast and free)
+      messages: [
+        { role: "system", content: personality },
+        { role: "user", content: prompt }
+      ],
+      max_tokens: 300,
+      temperature: 0.8,
+    });
 
-    const result = await model.generateContent(`${personality}\n\nUsuário: ${prompt}`);
-    const response = await result.response;
-    const text = response.text();
-
-    return text || fallbackReplies[Math.floor(Math.random() * fallbackReplies.length)];
+    return response.choices[0]?.message?.content || fallbackReplies[Math.floor(Math.random() * fallbackReplies.length)];
   } catch (error: any) {
-    console.error('[AI ERROR]:', error.message || error);
-    // Return a random cool reply if Gemini fails
+    console.error('[GROQ AI ERROR]:', error.message || error);
     return fallbackReplies[Math.floor(Math.random() * fallbackReplies.length)];
   }
 };
