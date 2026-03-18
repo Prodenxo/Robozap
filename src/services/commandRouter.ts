@@ -16,6 +16,8 @@ interface MessageData {
   pushName: string;
   text: string;
   quoted?: any;
+  quotedParticipant?: string; // ADDED
+  mentionedJid?: string[];   // ADDED
   messageType: string;
   raw: any;
 }
