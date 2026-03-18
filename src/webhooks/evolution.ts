@@ -8,7 +8,6 @@ export const handleWebhook = async (data: any) => {
 
   const msgContent = message.message || {};
   
-  // Get text from anywhere
   const textContent = 
     msgContent.conversation || 
     msgContent.extendedTextMessage?.text || 
@@ -21,17 +20,27 @@ export const handleWebhook = async (data: any) => {
   const remoteJid = message.key.remoteJid;
   const participant = message.key.participant || remoteJid;
 
-  // EVOLUTION V2 Target extraction (Super deep search)
-  // Quoted participant can be in several places depending on message type
+  // --- SUPER SCANNER DE CONTEXTO (Evolution v2) ---
   const context = 
     msgContent.extendedTextMessage?.contextInfo || 
     msgContent.imageMessage?.contextInfo || 
     msgContent.videoMessage?.contextInfo || 
     msgContent.stickerMessage?.contextInfo ||
-    message.messageContextInfo; // Fallback for some v2 structures
+    msgContent.documentWithCaptionMessage?.message?.documentMessage?.contextInfo ||
+    message.messageContextInfo;
 
-  const quotedParticipant = context?.participant || context?.quotedMessage?.key?.participant;
+  // Busca o alvo em 4 lugares diferentes (Padrão v2, Padrão v1, Fallback, Mentions)
+  const quotedParticipant = 
+    context?.participant || 
+    context?.quotedMessage?.key?.participant || 
+    context?.remoteJid || // Caso de resposta em PV
+    message.key.participant; // Último caso
+
   const mentionedJid = context?.mentionedJid || [];
+
+  // MANDA PRO LOG O QUE ELE ACHOU
+  console.log(`[WEBHOOK DEBUG] From: ${pushName} | Text: ${textContent}`);
+  console.log(`[TARGET DEBUG] Quoted: ${quotedParticipant} | Mentions: ${mentionedJid.length}`);
 
   await processMessage({
     id: message.key.id,
@@ -40,8 +49,8 @@ export const handleWebhook = async (data: any) => {
     pushName: message.pushName || 'Usuário',
     text: textContent,
     quoted: context?.quotedMessage,
-    quotedParticipant, // THIS IS THE KEY
-    mentionedJid,      // THIS IS THE KEY
+    quotedParticipant: quotedParticipant, 
+    mentionedJid: mentionedJid,
     messageType: Object.keys(msgContent)[0],
     raw: message
   });
