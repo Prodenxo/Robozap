@@ -69,15 +69,16 @@ export class WhatsAppService {
     }
   }
 
-  async downloadMedia(msgRaw: any) {
+  async getBase64FromMessage(messageId: string) {
     try {
-      const response = await axios.post(`${this.baseUrl}/message/downloadMedia/${this.instance}`, {
-        message: msgRaw.message || msgRaw
-      }, { headers: this.headers, responseType: 'arraybuffer' });
+      const response = await axios.post(`${this.baseUrl}/chat/getBase64FromMediaMessage/${this.instance}`, {
+        messageId: messageId
+      }, { headers: this.headers });
       
-      return Buffer.from(response.data);
+      // Response usually has { base64: '...' }
+      return response.data?.base64 || response.data;
     } catch (error: any) {
-      console.error('Error downloading media:', error.response?.data || error.message);
+      console.error('Error fetching base64:', error.response?.data || error.message);
       return null;
     }
   }

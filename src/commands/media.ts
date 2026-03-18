@@ -21,13 +21,16 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
       if (hasImage || hasSticker) {
         await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figStart);
         try {
-          // If it's a quoted media
-          const stickerSource = msgContent.imageMessage || msgContent.stickerMessage ? msg.raw : { message: quotedContent };
-          const buffer = await whatsapp.downloadMedia(stickerSource);
-          if (buffer) {
-            await whatsapp.sendSticker(msg.remoteJid, buffer);
+          // Identify which ID to use
+          const targetMessageId = (msgContent.imageMessage || msgContent.stickerMessage) ? msg.id : msg.quotedId;
+          
+          if (!targetMessageId) throw new Error('No message ID found for media');
+
+          const base64 = await whatsapp.getBase64FromMessage(targetMessageId);
+          if (base64) {
+            await whatsapp.sendSticker(msg.remoteJid, base64);
           } else {
-            throw new Error('Failed to download media');
+            throw new Error('Failed to fetch base64 from message');
           }
         } catch (error) {
           console.error('Sticker Error:', error);
