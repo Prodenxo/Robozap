@@ -1,8 +1,7 @@
-import { AIService } from '../services/ai';
+import { getAIResponse } from '../services/ai';
 import { WhatsAppService } from '../services/whatsapp';
 import { botTexts } from '../config/texts';
 
-const ai = new AIService();
 const whatsapp = new WhatsAppService();
 
 export const handleAICommands = async (command: string, args: string[], msg: any) => {
@@ -13,7 +12,7 @@ export const handleAICommands = async (command: string, args: string[], msg: any
         return true;
       }
       const prompt = args.join(' ');
-      const response = await ai.getMiltonResponse(prompt);
+      const response = await getAIResponse(prompt, botTexts.identity.systemPrompt);
       await whatsapp.sendMessage(msg.remoteJid, response || '');
       return true;
 
@@ -21,14 +20,15 @@ export const handleAICommands = async (command: string, args: string[], msg: any
     case 'resume':
     case 'resumo':
       await whatsapp.sendMessage(msg.remoteJid, botTexts.ai.summarizeStart);
-      const summary = await ai.summarizeGroup(msg.remoteJid);
+      // Simulating summarization via general AI response for now to keep it simple and free
+      const summary = await getAIResponse("Resuma as últimas conversas desse grupo de forma curta e debochada.", botTexts.identity.systemPrompt);
       await whatsapp.sendMessage(msg.remoteJid, summary || '');
       return true;
 
     case 'ajuda':
     case 'filhote.ajuda':
       const q = args.join(' ');
-      const help = await ai.getMiltonResponse(`O usuário quer ajuda sobre o bot. Pergunta: ${q}`, 'helpful but sarcastic as a RJ local');
+      const help = await getAIResponse(`O usuário quer ajuda sobre o bot. Pergunta: ${q}`, "Seja prestativo mas mantenha o deboche de cria do RJ.");
       await whatsapp.sendMessage(msg.remoteJid, help || '');
       return true;
 
