@@ -47,7 +47,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
 
     case 'apagar':
     case 'limpar':
-      const messageId = msg.quoted?.key?.id;
+      const messageId = msg.quotedId;
       if (!messageId) {
         await whatsapp.sendMessage(msg.remoteJid, "Pô, responde a mensagem que tu quer apagar!");
         return true;
@@ -69,11 +69,17 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
     case 'alertar':
     case 'avisar':
       const mentionTextAdv = await getMentionText(targetJid);
-      await (prisma as any).groupParticipant.updateMany({
+      const updated = await (prisma as any).groupParticipant.updateMany({
         where: { userJid: targetJid, group: { jid: msg.remoteJid } },
         data: { warningsCount: { increment: 1 } }
       });
-      await whatsapp.sendMessage(msg.remoteJid, `⚠️ Atenção ${mentionTextAdv}, tu tomou uma advertência! Próxima é vala.`, [targetJid]);
+      
+      const part = await (prisma as any).groupParticipant.findFirst({
+          where: { userJid: targetJid, group: { jid: msg.remoteJid } },
+          select: { warningsCount: true }
+      });
+
+      await whatsapp.sendMessage(msg.remoteJid, `⚠️ Atenção ${mentionTextAdv}, tu tomou uma advertência! Agora você tem *${part?.warningsCount || 0}* advs. Próxima é vala.`, [targetJid]);
       return true;
 
     default:

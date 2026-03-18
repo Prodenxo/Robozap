@@ -12,13 +12,19 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
   switch (command) {
     case 'fig':
     case 'sticker':
-      const isImage = msg.messageType === 'imageMessage';
-      const isQuotedImage = msg.raw?.message?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage;
+      const msgContent = msg.raw?.message || {};
+      const quotedContent = msg.raw?.message?.extendedTextMessage?.contextInfo?.quotedMessage || {};
       
-      if (isImage || isQuotedImage) {
+      const hasImage = msgContent.imageMessage || quotedContent.imageMessage;
+      
+      if (hasImage) {
         await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figStart);
         try {
-          await whatsapp.sendSticker(msg.remoteJid, msg.raw);
+          // If it's a quoted image, we might need the quoted message itself or just its content
+          // Evolution API sendSticker usually handles the message object or a URL/Base64.
+          // Let's pass the relevant part.
+          const stickerSource = msgContent.imageMessage ? msg.raw : { message: quotedContent };
+          await whatsapp.sendSticker(msg.remoteJid, stickerSource);
         } catch (error) {
           console.error('Sticker Error:', error);
           await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figErrorGeneric);

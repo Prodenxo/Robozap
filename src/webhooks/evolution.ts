@@ -37,10 +37,10 @@ export const handleWebhook = async (data: any) => {
   const context = findField(message, 'contextInfo');
   const quotedParticipant = context?.participant || context?.quotedMessage?.key?.participant;
   const mentionedJid = context?.mentionedJid || [];
+  const quotedId = context?.stanzaId; // ID Real da mensagem citada
 
   // LOG SÓ PARA COMANDOS AGORA
-  console.log(`[COMANDO RECEBIDO] ${senderName}: ${textContent}`);
-  console.log(`[RADAR] Alvo: ${quotedParticipant || (mentionedJid.length > 0 ? mentionedJid[0] : 'NENHUM')}`);
+  console.log(`[COMANDO RECEBIDO] ${senderName}: ${textContent} (QuotedID: ${quotedId})`);
 
   await processMessage({
     id: message.key.id,
@@ -49,6 +49,7 @@ export const handleWebhook = async (data: any) => {
     pushName: senderName,
     text: textContent,
     quoted: context?.quotedMessage,
+    quotedId: quotedId,
     quotedParticipant: quotedParticipant, 
     mentionedJid: mentionedJid,
     messageType: Object.keys(msgContent)[0],

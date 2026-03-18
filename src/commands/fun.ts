@@ -12,15 +12,17 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
         return true;
       }
       const percentage = Math.floor(Math.random() * 101);
-      const text = args.join(' ');
+      const query = args.join(' ');
       
-      // Optionally pick a random participant to "accuse" or "target"
-      const allParts = await (prisma as any).groupParticipant.findMany({ where: { group: { jid: msg.remoteJid } } });
-      const randomUser = allParts[Math.floor(Math.random() * allParts.length)];
-      const mention = randomUser ? `@${randomUser.userJid.split('@')[0]}` : 'alguém';
+      const allParts = await (prisma as any).groupParticipant.findMany({ 
+          where: { group: { jid: msg.remoteJid } },
+          select: { userJid: true }
+      });
+      const luckyOne = allParts[Math.floor(Math.random() * allParts.length)];
+      const mentionJid = luckyOne?.userJid;
 
-      const response = `${botTexts.fun.chanceHeader}"${text}":\n🎯 *${percentage}%*! (Pelo que eu vi, o culpado é o ${mention})`;
-      await whatsapp.sendMessage(msg.remoteJid, response, randomUser ? [randomUser.userJid] : []);
+      const response = `🎯 *CHANCE DE: ${query.toUpperCase()}*\n\n📈 Resultado: *${percentage}%*\n🕵️ Provável culpado: @${mentionJid?.split('@')[0] || 'alguém'}`;
+      await whatsapp.sendMessage(msg.remoteJid, response, mentionJid ? [mentionJid] : []);
       return true;
 
     case 'sortear':

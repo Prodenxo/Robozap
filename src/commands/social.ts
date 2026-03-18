@@ -8,32 +8,6 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
   const userJid = msg.participant;
 
   switch (command) {
-    case 'ig':
-      if (args.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, botTexts.social.igList);
-        return true;
-      }
-      const ig = args[0].replace('@', '');
-      await (prisma as any).groupParticipant.updateMany({
-        where: { userJid, group: { jid: msg.remoteJid } },
-        data: { instagram: ig }
-      });
-      await whatsapp.sendMessage(msg.remoteJid, `${botTexts.social.igSuccess}${ig}!`);
-      return true;
-
-    case 'local':
-      if (args.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, botTexts.social.localList);
-        return true;
-      }
-      const local = args.join(' ');
-      await (prisma as any).groupParticipant.updateMany({
-        where: { userJid, group: { jid: msg.remoteJid } },
-        data: { location: local }
-      });
-      await whatsapp.sendMessage(msg.remoteJid, `${botTexts.social.localSuccess}${local}!`);
-      return true;
-
     case 'radio':
     case 'playlist':
       await whatsapp.sendMessage(msg.remoteJid, botTexts.social.radio);

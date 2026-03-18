@@ -3,27 +3,49 @@ import { prisma } from './database';
 export class StatsService {
   async trackMessage(userJid: string, groupJid: string, messageId: string, text: string, pushName?: string) {
     try {
-      // Upsert user to ensure we have their latest pushName
-      await (prisma as any).user.upsert({
+      // 1. Ensure User exists
+      const user = await (prisma as any).user.upsert({
         where: { jid: userJid },
         update: { pushName: pushName || undefined },
         create: { jid: userJid, pushName: pushName || 'Usuário' }
       });
 
-      const group = await (prisma as any).group.findUnique({
-        where: { jid: groupJid }
+      // 2. Ensure Group exists
+      await (prisma as any).group.upsert({
+        where: { jid: groupJid },
+        update: {},
+        create: { jid: groupJid }
       });
 
-      if (!group) {
-        await (prisma as any).group.create({
-          data: { jid: groupJid }
+      // 3. Ensure GroupParticipant link exists (The missing piece!)
+      const participant = await (prisma as any).groupParticipant.findUnique({
+        where: { groupId_userJid: { groupId: groupJid, userJid } }
+      });
+
+      if (!participant) {
+        // Try connect by jids if possible, but schema uses ID for relation
+        // Actually, we can use the unique constraint for upsert
+        await (prisma as any).groupParticipant.upsert({
+            where: { groupId_userJid: { groupId: groupJid, userJid } },
+            update: { messagesSent: { increment: 1 } },
+            create: { 
+                group: { connect: { jid: groupJid } },
+                user: { connect: { jid: userJid } },
+                messagesSent: 1
+            }
         });
+      } else {
+          await (prisma as any).groupParticipant.update({
+              where: { id: participant.id },
+              data: { messagesSent: { increment: 1 } }
+          });
       }
 
+      // 4. Log Message
       await (prisma as any).messageLog.create({
         data: {
           messageId,
-          content: text,
+          content: text || '',
           userJid,
           type: 'text',
           group: { connect: { jid: groupJid } }

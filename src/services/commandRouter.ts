@@ -12,6 +12,7 @@ interface MessageData {
   pushName: string;
   text: string;
   quoted?: any;
+  quotedId?: string;
   quotedParticipant?: string;
   mentionedJid?: string[];
   messageType: string;
