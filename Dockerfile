@@ -6,6 +6,10 @@ WORKDIR /app
 # Install dependencies for building
 COPY package*.json ./
 COPY prisma ./prisma
+
+# Dummy DATABASE_URL for prisma generate during build
+ENV DATABASE_URL="mysql://root:password@localhost:3306/db"
+
 RUN npm install --legacy-peer-deps
 
 # Copy source and build
