@@ -14,7 +14,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       console.log(`[ADMIN COMMAND] ${command} | Target Found: ${targetJid}`);
   }
 
-  // Helper for pretty mentions (just @number)
+  // Helper for pretty mentions (limpando o @lid ou @s.whatsapp.net para o texto)
   const mention = (jid: string) => `@${jid.split('@')[0]}`;
 
   switch (command) {
@@ -24,6 +24,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
           return true;
       }
       await whatsapp.groupUpdateParticipant(msg.remoteJid, 'promote', [targetJid]);
+      // IMPORTANTE: Passamos o texto com @numero e a lista de JIDs para o Bluetooth do Zap traduzir o azulzinho
       await whatsapp.sendMessage(msg.remoteJid, `👑 Cargo de patrão agora pra você: ${mention(targetJid)}!`, [targetJid]);
       return true;
 
