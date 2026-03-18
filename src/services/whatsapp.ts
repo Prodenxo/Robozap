@@ -40,25 +40,24 @@ export class WhatsAppService {
     }
   }
 
-  // --- ADMIN ACTIONS (COM DEBUG) ---
+  // --- ADMIN ACTIONS (RETORNANDO O NÚMERO REAL) ---
   async groupUpdateParticipant(groupJid: string, action: 'add' | 'remove' | 'promote' | 'demote', participants: string[]) {
     try {
-      console.log(`[EVOLUTION API] Executando ${action} em ${participants[0]} no grupo ${groupJid}...`);
-      
       const response = await axios.post(`${this.baseUrl}/group/updateParticipant/${this.instance}`, {
         groupJid: groupJid,
         action: action,
         participants: participants
       }, { headers: this.headers });
 
-      console.log(`[EVOLUTION OK] Status: ${response.status} | Data:`, JSON.stringify(response.data));
+      // O "Pulo do Gato": Pegar o phone_number que o WhatsApp resolveu
+      const resData = response.data?.updateParticipants?.[0];
+      const realNumber = resData?.content?.attrs?.phone_number || resData?.jid || participants[0];
+      
+      console.log(`[EVOLUTION RESOLVED] LID: ${participants[0]} -> Real: ${realNumber}`);
+      return realNumber;
     } catch (error: any) {
-      console.error(`[EVOLUTION FATAL ERROR] Erro ao carregar ${action} no grupo!`);
-      if (error.response) {
-          console.error(`Status: ${error.response.status} | Resposta:`, JSON.stringify(error.response.data));
-      } else {
-          console.error(`Mensagem: ${error.message}`);
-      }
+      console.error(`[EVOLUTION ERROR] ${action}:`, error.response?.data || error.message);
+      return participants[0];
     }
   }
 
