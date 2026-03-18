@@ -24,14 +24,16 @@ export class WhatsAppService {
 
   async sendMessage(remoteJid: string, text: string, mentions: string[] = []) {
     try {
+      // Enviamos as menções tanto na raiz quanto no options para garantir o azulzinho
       await axios.post(`${this.baseUrl}/message/sendText/${this.instance}`, {
         number: remoteJid,
         text: text,
+        mentions: mentions, // Nível raiz (Evolution v2)
         options: { 
             delay: 1200, 
             presence: 'composing', 
             linkPreview: false,
-            mentions: mentions // Agora o WhatsApp entende a marcação!
+            mentions: mentions // Nível options (Fallback)
         }
       }, { headers: this.headers });
     } catch (error: any) {
