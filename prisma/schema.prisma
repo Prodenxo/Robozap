@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                Int      @id @default(autoincrement())
+  jid               String   @unique
+  pushName          String?
+  messagesSent      Int      @default(0)
+  reactionsReceived Int      @default(0)
+  warnings          Int      @default(0)
+  cargo             Int      @default(5) // 1: Owner, 2: ADM, 5: Member
+  bio               String?
+  photoUrl          String?
+  birthday          String? // DD/MM
+  instagram         String?
+  location          String?
+  ignoreMe          Boolean  @default(false)
+  updatedAt         DateTime @updatedAt
+  
+  groups            UserGroup[]
+}
+
+model Group {
+  id                Int      @id @default(autoincrement())
+  jid               String   @unique
+  subscriptionExpires DateTime?
+  menuDisabled      Boolean  @default(false)
+  markForced        Boolean  @default(false)
+  
+  users             UserGroup[]
+  messages          GroupMessage[]
+  roles             EventRole[]
+}
+
+model UserGroup {
+  userId Int
+  groupId Int
+  user   User  @relation(fields: [userId], references: [id])
+  group  Group @relation(fields: [groupId], references: [id])
+  
+  @@id([userId, groupId])
+}
+
+model GroupMessage {
+  id        Int      @id @default(autoincrement())
+  messageId String   @unique
+  text      String
+  timestamp DateTime @default(now())
+  userJid   String
+  group     Group    @relation(fields: [groupId], references: [id])
+  groupId   Int
+}
+
+model EventRole {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  title       String
+  description String?
+  date        DateTime?
+  creatorJid  String
+  group       Group    @relation(fields: [groupId], references: [id])
+  groupId     Int
+  participants String? // JSON array of JIDs
+}
