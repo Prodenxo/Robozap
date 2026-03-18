@@ -4,9 +4,7 @@ import { botTexts } from '../config/texts';
 import ytdl from '@distube/ytdl-core';
 import path from 'path';
 import fs from 'fs';
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
 const whatsapp = new WhatsAppService();
 const media = new MediaService();
 
