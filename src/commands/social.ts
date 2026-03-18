@@ -15,8 +15,8 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         return true;
       }
       const ig = args[0].replace('@', '');
-      await prisma.user.update({
-        where: { jid: userJid },
+      await prisma.groupParticipant.updateMany({
+        where: { userJid, group: { jid: msg.remoteJid } },
         data: { instagram: ig }
       });
       await whatsapp.sendMessage(msg.remoteJid, `${botTexts.social.igSuccess}${ig}!`);
@@ -28,8 +28,8 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         return true;
       }
       const local = args.join(' ');
-      await prisma.user.update({
-        where: { jid: userJid },
+      await prisma.groupParticipant.updateMany({
+        where: { userJid, group: { jid: msg.remoteJid } },
         data: { location: local }
       });
       await whatsapp.sendMessage(msg.remoteJid, `${botTexts.social.localSuccess}${local}!`);

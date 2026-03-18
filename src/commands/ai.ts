@@ -25,19 +25,19 @@ export const handleAICommands = async (command: string, args: string[], msg: any
       await whatsapp.sendMessage(msg.remoteJid, botTexts.ai.summarizeStart);
       try {
         // Fetch recent messages logically from the database for this group
-        const stats = await prisma.stats.findMany({
-          where: { groupJid: msg.remoteJid },
+        const logs = await prisma.messageLog.findMany({
+          where: { group: { jid: msg.remoteJid } },
           orderBy: { createdAt: 'desc' },
           take: 30, // Last 30 messages
-          select: { text: true, userJid: true }
+          select: { content: true, userJid: true }
         });
 
-        if (stats.length === 0) {
+        if (logs.length === 0) {
           await whatsapp.sendMessage(msg.remoteJid, botTexts.ai.errorNoMessages);
           return true;
         }
 
-        const chatContext = stats.reverse().map(s => `${s.userJid.split('@')[0]}: ${s.text}`).join('\n');
+        const chatContext = logs.reverse().map((s: { userJid: string, content: string | null }) => `${s.userJid.split('@')[0]}: ${s.content}`).join('\n');
         const summary = await getAIResponse(
             `Resuma de forma engraçada, sarcástica e curta as seguintes mensagens de um grupo: \n\n${chatContext}`, 
             botTexts.identity.summaryPrompt

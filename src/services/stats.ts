@@ -22,11 +22,12 @@ export class StatsService {
         });
       }
 
-      await prisma.groupMessage.create({
+      await prisma.messageLog.create({
         data: {
           messageId,
-          text,
+          content: text,
           userJid,
+          type: 'text',
           group: { connect: { jid: groupJid } }
         }
       });

@@ -17,16 +17,18 @@ export const handleUserCommands = async (command: string, args: string[], msg: a
     case 'meusdados':
     case 'dados':
       try {
-        const statsCount = await prisma.groupMessage.count({ where: { userJid } });
-        const user = await prisma.user.findUnique({ where: { jid: userJid } });
+        const statsCount = await prisma.messageLog.count({ where: { userJid } });
+        const participant = await prisma.groupParticipant.findFirst({ 
+          where: { userJid, group: { jid: msg.remoteJid } } 
+        });
         
         const response = `${botTexts.user.meusdadosHeader}\n\n` +
           `👤 *Nome:* ${msg.pushName}\n` +
           `💬 *Mensagens:* ${statsCount}\n` +
-          `⚠️ *Advertências:* ${user?.warnings || 0}\n` +
-          `🎂 *Niver:* ${user?.birthday || 'Não cadastrado'}\n` +
-          `📸 *IG:* ${user?.instagram || 'N/A'}\n` +
-          `📍 *Local:* ${user?.location || 'N/A'}`;
+          `⚠️ *Advertências:* ${participant?.warningsCount || 0}\n` +
+          `🎂 *Niver:* ${participant?.birthday || 'Não cadastrado'}\n` +
+          `📸 *IG:* ${participant?.instagram || 'N/A'}\n` +
+          `📍 *Local:* ${participant?.location || 'N/A'}`;
         
         await whatsapp.sendMessage(msg.remoteJid, response);
       } catch (e) {
@@ -39,20 +41,29 @@ export const handleUserCommands = async (command: string, args: string[], msg: a
         await whatsapp.sendMessage(msg.remoteJid, "Solta tua bio aí depois do .bio");
         return true;
       }
-      await prisma.user.update({ where: { jid: userJid }, data: { bio: args.join(' ') } });
+      await prisma.groupParticipant.updateMany({ 
+        where: { userJid, group: { jid: msg.remoteJid } }, 
+        data: { bioText: args.join(' ') } 
+      });
       await whatsapp.sendMessage(msg.remoteJid, botTexts.user.bioSuccess);
       return true;
 
     case 'niver':
-      if (args[0] === 'excluir' || command === 'niver.excluir') {
-        await prisma.user.update({ where: { jid: userJid }, data: { birthday: null } });
+      if (args[0] === 'excluir' || (command as string) === 'niver.excluir') {
+        await prisma.groupParticipant.updateMany({ 
+          where: { userJid, group: { jid: msg.remoteJid } }, 
+          data: { birthday: null } 
+        });
         await whatsapp.sendMessage(msg.remoteJid, botTexts.user.niverExcluir);
       } else {
         const date = args[0];
         if (!/^\d{2}\/\d{2}$/.test(date)) {
           await whatsapp.sendMessage(msg.remoteJid, "Pô, manda DD/MM. Ex: .niver 15/08");
         } else {
-          await prisma.user.update({ where: { jid: userJid }, data: { birthday: date } });
+          await prisma.groupParticipant.updateMany({ 
+            where: { userJid, group: { jid: msg.remoteJid } }, 
+            data: { birthday: date } 
+          });
           await whatsapp.sendMessage(msg.remoteJid, `${botTexts.user.niverSuccess}${date}!`);
         }
       }
@@ -60,32 +71,47 @@ export const handleUserCommands = async (command: string, args: string[], msg: a
 
     case 'ig':
       if (args.length === 0) {
-        // List all IGs
-        const users = await prisma.user.findMany({ where: { instagram: { not: null } }, select: { pushName: true, instagram: true } });
-        const list = users.map(u => `📸 ${u.pushName}: @${u.instagram}`).join('\n');
+        // List all IGs in this group
+        const participants = await prisma.groupParticipant.findMany({ 
+          where: { group: { jid: msg.remoteJid }, instagram: { not: null } }, 
+          select: { user: { select: { pushName: true } }, instagram: true } 
+        });
+        const list = participants.map(p => `📸 ${p.user.pushName || 'Desconhecido'}: @${p.instagram}`).join('\n');
         await whatsapp.sendMessage(msg.remoteJid, `📸 *Lista do Insta:*\n\n${list || 'Ninguém cadastrou nada ainda.'}`);
       } else {
         const ig = args[0].replace('@', '');
-        await prisma.user.update({ where: { jid: userJid }, data: { instagram: ig } });
+        await prisma.groupParticipant.updateMany({ 
+          where: { userJid, group: { jid: msg.remoteJid } }, 
+          data: { instagram: ig } 
+        });
         await whatsapp.sendMessage(msg.remoteJid, `${botTexts.user.igSuccess}${ig}!`);
       }
       return true;
 
     case 'local':
       if (args.length === 0) {
-        const users = await prisma.user.findMany({ where: { location: { not: null } }, select: { pushName: true, location: true } });
-        const list = users.map(u => `📍 ${u.pushName}: ${u.location}`).join('\n');
+        const participants = await prisma.groupParticipant.findMany({ 
+          where: { group: { jid: msg.remoteJid }, location: { not: null } }, 
+          select: { user: { select: { pushName: true } }, location: true } 
+        });
+        const list = participants.map(p => `📍 ${p.user.pushName || 'Desconhecido'}: ${p.location}`).join('\n');
         await whatsapp.sendMessage(msg.remoteJid, `📍 *Onde a rapaziada mora:*\n\n${list || 'Ninguém avisou.'}`);
       } else {
         const local = args.join(' ');
-        await prisma.user.update({ where: { jid: userJid }, data: { location: local } });
+        await prisma.groupParticipant.updateMany({ 
+          where: { userJid, group: { jid: msg.remoteJid } }, 
+          data: { location: local } 
+        });
         await whatsapp.sendMessage(msg.remoteJid, `${botTexts.user.localSuccess}${local}!`);
       }
       return true;
 
     case 'ignoreme':
       const mode = args[0] === 'on';
-      await prisma.user.update({ where: { jid: userJid }, data: { ignoreMe: mode } });
+      await prisma.groupParticipant.updateMany({ 
+        where: { userJid, group: { jid: msg.remoteJid } }, 
+        data: { ignoreMentions: mode } 
+      });
       await whatsapp.sendMessage(msg.remoteJid, `${botTexts.user.ignoreMe}${mode ? 'ATIVADO 🛡️' : 'DESATIVADO 📢'}`);
       return true;
 

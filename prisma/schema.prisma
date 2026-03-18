@@ -4,67 +4,170 @@ generator client {
 
 datasource db {
   provider = "mysql"
-  url      = env("DATABASE_URL")
-}
-
-model User {
-  id                Int      @id @default(autoincrement())
-  jid               String   @unique
-  pushName          String?
-  messagesSent      Int      @default(0)
-  reactionsReceived Int      @default(0)
-  warnings          Int      @default(0)
-  cargo             Int      @default(5) // 1: Owner, 2: ADM, 5: Member
-  bio               String?
-  photoUrl          String?
-  birthday          String? // DD/MM
-  instagram         String?
-  location          String?
-  ignoreMe          Boolean  @default(false)
-  updatedAt         DateTime @updatedAt
-  
-  groups            UserGroup[]
 }
 
 model Group {
-  id                Int      @id @default(autoincrement())
-  jid               String   @unique
-  subscriptionExpires DateTime?
-  menuDisabled      Boolean  @default(false)
-  markForced        Boolean  @default(false)
+  id                      String    @id @default(uuid())
+  jid                     String    @unique
+  name                    String?
+  subscriptionStatus      String    @default("ACTIVE") // ACTIVE, EXPIRED
+  subscriptionExpiresAt   DateTime?
+  menuEnabled             Boolean   @default(true)
+  mentionsEnabled         Boolean   @default(true)
+  filhoteCommandEnabled   Boolean   @default(true)
+  filhoteNaturalModeEnabled Boolean @default(false)
+  filhoteAiModeEnabled    Boolean   @default(true)
+  welcomeConfig           Json?     // Config de boas-vindas
+  radioLinks              Json?     // Links de playlists
+  settings                Json?     // Outras configs gerais
   
-  users             UserGroup[]
-  messages          GroupMessage[]
-  roles             EventRole[]
+  participants            GroupParticipant[]
+  warnings                Warning[]
+  roles                   RoleEvent[]
+  niches                  NicheList[]
+  messages                MessageLog[]
+  auditLogs               AuditLog[]
+  commandUsages           CommandUsage[]
+  playlists               PlaylistConfig[]
 }
 
-model UserGroup {
-  userId Int
-  groupId Int
-  user   User  @relation(fields: [userId], references: [id])
-  group  Group @relation(fields: [groupId], references: [id])
+model User {
+  id            String    @id @default(uuid())
+  jid           String    @unique
+  pushName      String?
+  createdAt     DateTime  @default(now())
   
-  @@id([userId, groupId])
+  groupData     GroupParticipant[]
 }
 
-model GroupMessage {
-  id        Int      @id @default(autoincrement())
-  messageId String   @unique
-  text      String
-  timestamp DateTime @default(now())
-  userJid   String
-  group     Group    @relation(fields: [groupId], references: [id])
-  groupId   Int
+model GroupParticipant {
+  id                String    @id @default(uuid())
+  group             Group     @relation(fields: [groupId], references: [id])
+  groupId           String
+  user              User      @relation(fields: [userJid], references: [jid])
+  userJid           String
+  
+  roleCode          Int       @default(5) // 1=Dono, 2=ADM_Confiavel, 3=ADM, 4=Moderador, 5=Membro
+  messagesSent      Int       @default(0)
+  reactionsReceived Int       @default(0)
+  warningsCount     Int       @default(0)
+  
+  bioText           String?   @db.Text
+  bioPhotoUrl       String?
+  birthday          String?   // DD/MM
+  instagram         String?
+  location          String?
+  ignoreMentions    Boolean   @default(false)
+  bannedPermanently Boolean   @default(false)
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  participations    RoleParticipation[]
+  nicheMemberships  NicheMembership[]
+
+  @@unique([groupId, userJid])
 }
 
-model EventRole {
-  id          Int      @id @default(autoincrement())
-  code        String   @unique
-  title       String
-  description String?
-  date        DateTime?
-  creatorJid  String
+model Warning {
+  id              String   @id @default(uuid())
+  group           Group    @relation(fields: [groupId], references: [id])
+  groupId         String
+  userJid         String
+  appliedBy       String
+  reason          String?
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime
+}
+
+model RoleEvent {
+  id            String   @id @default(uuid())
+  code          String   // Codigo curto do role
+  group         Group    @relation(fields: [groupId], references: [id])
+  groupId       String
+  title         String
+  description   String?
+  createdBy     String
+  createdAt     DateTime @default(now())
+  active        Boolean  @default(true)
+  sourceMessageId String?
+
+  participations RoleParticipation[]
+}
+
+model RoleParticipation {
+  id            String    @id @default(uuid())
+  role          RoleEvent @relation(fields: [roleId], references: [id])
+  roleId        String
+  participant   GroupParticipant @relation(fields: [participantId], references: [id])
+  participantId String
+  status        String    // vou, nvou
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([roleId, participantId])
+}
+
+model NicheList {
+  id          String   @id @default(uuid())
+  code        String
   group       Group    @relation(fields: [groupId], references: [id])
-  groupId     Int
-  participants String? // JSON array of JIDs
+  groupId     String
+  name        String
+  description String?
+  active      Boolean  @default(true)
+
+  memberships NicheMembership[]
+}
+
+model NicheMembership {
+  id            String    @id @default(uuid())
+  niche         NicheList @relation(fields: [nicheId], references: [id])
+  nicheId       String
+  participant   GroupParticipant @relation(fields: [participantId], references: [id])
+  participantId String
+  createdAt     DateTime  @default(now())
+
+  @@unique([nicheId, participantId])
+}
+
+model MessageLog {
+  id                    String   @id @default(uuid())
+  group                 Group    @relation(fields: [groupId], references: [id])
+  groupId               String
+  userJid               String
+  messageId             String   @unique
+  content               String?  @db.Text
+  type                  String   // text, image, etc
+  mentionedParticipantIds Json?
+  createdAt             DateTime @default(now())
+}
+
+model PlaylistConfig {
+  id        String   @id @default(uuid())
+  group     Group    @relation(fields: [groupId], references: [id])
+  groupId   String
+  category  String?
+  url       String
+  createdBy String
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  group     Group    @relation(fields: [groupId], references: [id])
+  groupId   String
+  actorId   String
+  action    String
+  targetIds Json?
+  metadata  Json?
+  createdAt DateTime @default(now())
+}
+
+model CommandUsage {
+  id            String   @id @default(uuid())
+  group         Group    @relation(fields: [groupId], references: [id])
+  groupId       String
+  userJid       String
+  commandName   String
+  success       Boolean
+  createdAt     DateTime @default(now())
 }

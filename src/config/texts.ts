@@ -1,104 +1,78 @@
 export const botTexts = {
-  identity: {
+  persona: {
     name: "Filhote do Mohammed",
-    command: "filhote",
-    systemPrompt: `Você é o Filhote do Mohammed, uma figura de WhatsApp sarcástica, carismática, debochada, marrenta e direta. Fale como um cria do RJ, com gírias brasileiras, postura debochada e respostas curtas, naturais e com cara de conversa real de WhatsApp. Seja engraçado, provocador na medida certa e sem parecer robótico. Nunca incentive crimes, ameaças, violência, golpes ou qualquer atividade ilegal.`,
-    summaryPrompt: `Você é o Filhote do Mohammed. Sua tarefa é resumir a conversa desse grupo de WhatsApp de forma dinâmica, engraçada e sarcástica. Faça no estilo cria do RJ, com gírias, deboche e energia de resenha. Destaque as tretas, as piadas e os assuntos principais. Use emojis e mantenha um tom curto, solto e engraçado. Nunca incentive crimes, ameaças, violência, golpes ou qualquer atividade ilegal.`
+    style: "sarcástico, carismático, debochado, marrento e direto.",
+    promptBase: "Você é o Filhote do Mohammed, personagem de WhatsApp sarcástico, carismático, debochado, marrento e direto. Responda de forma curta, natural, divertida e com cara de conversa real de WhatsApp. Use gírias brasileiras com leveza. Seja engraçado e provocador na medida certa, sem incentivar crimes, golpes, ameaças, violência ou qualquer atividade ilegal."
   },
-
   general: {
-    menu: `🌟 *FILHOTE DO MOHAMMED - Menu de Mandamentos* 🌟
-
-🔅 *USO GERAL* 🔅
-
-🤖 *.menu*
-Exibe esse menu. Use *.menu off* para os administradores desativarem a chamada por membros.
-
-🤖 *.vencimento*
-Exibe o status da assinatura do FILHOTE no grupo.
-
-🤖 *.filhote.ajuda* [pergunta]
-Tira tuas dúvidas sobre os comandos fazendo uma pergunta pro brabo.
-
-🤖 *.filhote*
-Conversa com o cria mais debochado que tu já viu. 
-* .filhote - Mostra modos de conversa.
-* .filhote off off - Desativa conversa.
-* .filhote on on - Ativa conversa real (IA) e natural.
-
-🤖 *.resumir*
-Puxa o resumão da resenha de forma dinâmica e engraçada.
-
-📝 _*Informações pessoais*_
-🤖 *.meusdados* - Teu status no grupo.
-🤖 *.bio* - Configura teu perfil.
-🤖 *.niver* [DD/MM] - Marca teu aniversário.
-🤖 *.nivers* - Lista os aniversariantes (hoje/mês/ano).
-🤖 *.signos* - Vê a constelação da rapaziada.
-🤖 *.ig* [@user] - Teu Instagram na pista.
-🤖 *.local* [bairro] - De onde tu é?
-🤖 *.radio* - Playlist da rapaziada.
-🤖 *.ignoreme* [on/off] - Instrua o bot a não te marcar.
-
-👬 _*Interação social*_
-🤖 *.roles* - Lista os rolês marcados.
-🤖 *.role.vou* [ID] - Confirma tua presença.
-🤖 *.role.nvou* [ID] - Desiste do rolê.
-🤖 *.nicho.entrar* [código] - Entra numa lista/nicho.
-
-🎁 _*Entretenimento*_
-🤖 *.chance* [pergunta] - Vê se vai dar bom.
-🤖 *.sortear* [texto] - Escolhe alguém do grupo.
-🤖 *.dado* / *.moeda* - Joga a sorte pro alto.
-🤖 *.versiculo* - Uma palavra amiga.
-🤖 *.sortedodia* - Biscoito da sorte de cria.
-🤖 *.musica* [nome] - Baixa do YT na hora.
-🤖 *.fig* - Faz figurinha de foto/vídeo.
-
-❓ _*Diversos*_
-🤖 *.transcrever* - Ouve áudio por tu.
-🤖 *.admins* - Chama os donos do morro.
-🤖 *.teste* - Vê se o bot tá on.
-
-_Dúvidas? Manda um zap pro Mohammed._`,
-    
-    vencimentoAtiva: "✅ Tua assinatura tá nesse pique aqui: Ativa (VIP Infinito) 🫥",
-    vencimentoExpirada: "🫥 Tua assinatura expirou, paizão! Renova aí pra voltar o deboche.",
-    menuDisabled: "⚠️ Os ADMs desativaram o menu geral pra não poluir. Manda no PV!"
+    menuHeader: "🌟 *FILHOTE DO MOHAMMED - O DONO DA BANCA* 🌟",
+    menuFooter: "\n\n⚠️ _Se eu não responder, é porque tô ocupado sendo brabo. Tenta de novo._",
+    vencimentoAtiva: "✅ *Assinatura ATIVA!* O Filhote tá na pista pra negócio.",
+    vencimentoExpirada: "🫥 *Assinatura EXPIRADA.* O Filhote tá de greve, pô! Paga as contas aí pra eu voltar.",
+    testReplies: [
+      "Tô aqui, pô! Que que tu quer?",
+      "Fala tu!",
+      "O brabo tem nome.",
+      "Quer um autógrafo?",
+      "Tô ocupado sendo foda, fala rápido."
+    ]
   },
-
+  identity: {
+    systemPrompt: "Você é o Filhote do Mohammed, personagem de WhatsApp sarcástico, carismático, debochado, marrento e direto. Responda de forma curta, natural, divertida e com cara de conversa real de WhatsApp. Use gírias brasileiras com leveza. Seja engraçado e provocador na medida certa, sem incentivar crimes, golpes, ameaças, violência ou qualquer atividade ilegal.",
+    summaryPrompt: "Você é o Filhote do Mohammed. Resuma as mensagens abaixo de forma sarcástica, curta e direta, usando gírias de cria."
+  },
   ai: {
-    filhoteNoText: "Qual foi, meu mano? Digita alguma coisa depois do .filhote aí.",
-    summarizeStart: "🧐 Pera aí que eu vou pegar a visão do que essa rapaziada ficou falando...",
-    errorBusy: "Tô embolado agora, volta daqui a pouco. ✨",
-    errorGeneric: "Deu ruim aqui na minha mente, tenta de novo aí.",
-    errorNoMessages: "Não tem nada pra resumir ainda, mó silêncio por aqui."
+    filhoteNoText: "❓ *FALA TU, PARCEIRO.* Escreve alguma coisa depois do comando pra eu te responder.",
+    summarizeStart: "🧐 *Deixa eu ver o que essa rapaziada tá arrumando...* Peraí.",
+    errorNoMessages: "❌ *Vazio igual minha conta bancária.* Não tem mensagem pra resumir aqui.",
+    errorGeneric: "💀 *DEU RUIM NA MINHA CABEÇA.* A IA tá de folga. Tenta mais tarde."
   },
-
   user: {
-    meusdadosHeader: "📊 *Teus Dados no Grupo* 📊",
-    bioSuccess: "✅ Bio atualizada certinho, meu cria!",
-    niverSuccess: "✅ Teu aniversário ficou marcado pra ",
-    niverExcluir: "🗑️ Teu niver foi varrido da lista.",
-    igSuccess: "📸 Insta cadastrado: @",
-    localSuccess: "📍 Local salvo: ",
+    meusdadosHeader: "📊 *TEUS DADOS NA MINHA MÃO:*",
+    bioSuccess: "✅ Bio salva! Agora todo mundo sabe que tu é cria.",
+    niverSuccess: "🎂 Data guardada! O bolo é por tua conta no dia ",
+    niverExcluir: "🗑️ Niver apagado. Ninguém vai te dar parabéns agora.",
+    igSuccess: "📸 Insta na mão! Vou te dar um follow... mentira.",
+    localSuccess: "📍 Local salvo! Já sei onde te buscar pra resenha: ",
     ignoreMe: "🛡️ Modo invisível: "
   },
-
-  fun: {
-    chanceHeader: "🔮 *Chance* de ",
-    sortearResult: "🎉 Os sorteado da vez são: ",
-    versiculo: "📖 *Versículo do Dia:* ",
-    sortedodia: "🍪 *Biscoito do Cria:* "
-  },
-
   admin: {
-    removerSuccess: "🚀 Foi de arrasta pra fora do grupo!",
-    banSuccess: "🚫 Já era, foi banido sem volta.",
-    advSuccess: "⚠️ Advertência anotada pra ",
-    advLimit: "❗ Passou do limite, paizão. Banindo...",
-    promoverSuccess: "👑 Cargo de patrão agora pra você: ",
-    rebaixarSuccess: "📉 Perdeu o cargo! Volta pra base.",
-    marcaOnOff: "📢 Marcação geral: "
+    noPerm: "❌ *AÍ NÃO, PARCEIRO.* Tu não tem cargo pra essa braba aqui. Só quem manda fala.",
+    promoted: "👑 Cargo de patrão agora pra você: ",
+    demoted: "📉 Perdeu o cargo! Volta pra base, ",
+    banned: "🧹 Varri você daqui. Sem massagem pro ",
+    warned: "⚠️ Atenção parceiro, tu tomou uma advertência! Próxima é vala: ",
+    removed: "👋 Valeu, falou! Voei com o ",
+    unbanned: "🔓 Tá limpo! O Filhote te deu uma nova chance: "
+  },
+  fun: {
+    chance: "📊 *CHANCE DO FILHOTE:* ",
+    chanceNoText: "🎲 *CHANCE DE QUÊ?* Completa a frase aí, doidão.",
+    chanceHeader: "📊 *O FILHOTE AVISA:* A chance de ",
+    sorteio: "🏆 *SORTEADO DA VEZ:* ",
+    versiculo: "📖 *FILHOTE TAMBÉM É SANTO:* ",
+    sdia: "🍀 *SORTE DO DIA:* "
+  },
+  media: {
+    figStart: "🚀 *Saindo uma figurinha do forno!* Espera aí, parceiro...",
+    figErrorGeneric: "❌ *DEU RUIM.* Minha máquina de figurinha pifou. Tenta de novo mais tarde.",
+    figErrorNoImage: "🙄 *QUALÉ, DOIDÃO?* Manda uma imagem ou marca uma pra eu fazer a figurinha.",
+    musicaNoText: "🎵 *QUER OUVIR O QUÊ?* Manda o nome da música ou o link, não sou vidente.",
+    musicaErrorNotFound: "🚫 *ACHEI FOI NADA.* Essa música aí nem existe na minha quebrada. Tenta outro nome.",
+    musicaSearch: "🔍 *BUSCANDO BRABA:* \"$query\"... Já te mando o som!",
+    musicaErrorGeneric: "💀 *ERRO CRÍTICO, PARCEIRO.* O som tá travado. O YouTube tá de marcação comigo."
+  },
+  social: {
+    roleCriado: "🔥 *NOVO ROLÊ NA PISTA!* Código: ",
+    presenca: "✅ Confirmado! O Filhote já te colocou na lista do ",
+    desistencia: "🤷 Já sabia que ia arregar... Saindo da lista do ",
+    nichoEntrar: "🔥 Tu entrou pro bando! Agora tu é do nicho: ",
+    nichoSair: "👋 Saiu do bando. O nicho ficou mais vazio sem você: ",
+    igList: "📸 *LISTA DOS FAMOSINHOS DO INSTA:* ",
+    igSuccess: "✅ *INSTA NA MÃO!* Vou te dar um follow... mentira. Salvei o @",
+    localList: "📍 *ONDE A RAPAZIADA SE ESCONDE:* ",
+    localSuccess: "📍 *LOCAL SALVO!* Já sei onde te buscar pra resenha: ",
+    radio: "📻 *RÁDIO DO FILHOTE:* Curte a playlist aí: https://spotify.com",
+    roles: "🎉 *ROLÊS MARCADOS:* "
   }
 };

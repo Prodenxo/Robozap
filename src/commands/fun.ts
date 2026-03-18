@@ -21,8 +21,8 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
     case 'sortear':
       try {
         // Querying actual users from database who have messages in this group
-        const groupUsers = await prisma.stats.findMany({
-          where: { groupJid: msg.remoteJid },
+        const groupUsers = await prisma.messageLog.findMany({
+          where: { group: { jid: msg.remoteJid } },
           distinct: ['userJid'],
           select: { userJid: true }
         });
