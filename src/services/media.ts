@@ -1,37 +1,42 @@
-import ffmpeg from 'fluent-ffmpeg';
 import ytdl from '@distube/ytdl-core';
 import ytSearch from 'yt-search';
 import fs from 'fs';
-import path from 'path';
+import ffmpeg from 'fluent-ffmpeg';
 
 export class MediaService {
   async searchYouTube(query: string): Promise<string | null> {
-    const r = await ytSearch(query);
-    const videos = r.videos;
-    return videos.length > 0 ? videos[0].url : null;
+    const results = await ytSearch(query);
+    return results.videos.length > 0 ? results.videos[0].url : null;
   }
 
   async downloadMusic(url: string, outputPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      ytdl(url, { filter: 'audioonly' })
-        .pipe(fs.createWriteStream(outputPath))
-        .on('finish', resolve)
-        .on('error', reject);
-    });
-  }
+      try {
+        // High quality options but more prone to detection
+        const stream = ytdl(url, {
+          quality: 'highestaudio',
+          filter: 'audioonly',
+        });
 
-  // Placeholder for sticker logic as it requires complex conversion
-  // usually done with sharp or ffmpeg to webp
-  async createSticker(inputPath: string, outputPath: string) {
-    return new Promise((resolve, reject) => {
-      ffmpeg(inputPath)
-        .outputOptions([
-          '-vcodec', 'libwebp',
-          '-vf', 'scale=512:512:force_original_aspect_ratio=increase,fps=15,crop=512:512'
-        ])
-        .save(outputPath)
-        .on('end', resolve)
-        .on('error', reject);
+        // WRAP IN TRY/CATCH AND EMIT ERROR TO PREVENT CRASH
+        stream.on('error', (err) => {
+           console.error('[YTDL ERROR]:', err.message);
+           reject(new Error('YouTube blocked this download. Try another link or search.'));
+        });
+
+        ffmpeg(stream)
+          .audioBitrate(128)
+          .toFormat('mp4')
+          .on('end', () => resolve())
+          .on('error', (err) => {
+            console.error('[FFMPEG ERROR]:', err);
+            reject(err);
+          })
+          .save(outputPath);
+      } catch (error) {
+        console.error('[MEDIA SERVICE FATAL]:', error);
+        reject(error);
+      }
     });
   }
 }

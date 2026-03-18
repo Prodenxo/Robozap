@@ -36,5 +36,5 @@ COPY --from=builder /app/prisma ./prisma
 
 EXPOSE 3000
 
-# Script to run migrations before starting
-CMD npx prisma migrate deploy && npm start
+# Script to force sync database schema and then start
+CMD npx prisma db push --accept-data-loss && npm start
