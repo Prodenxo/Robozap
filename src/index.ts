@@ -15,13 +15,14 @@ app.get('/health', (req, res) => {
 });
 
 // Evolution API Webhook endpoint
-app.post('/webhook', async (req, res) => {
+app.post('/webhook/evolution', async (req, res) => {
   try {
+    console.log('[ROBOZAP] Received new webhook payload');
     await handleWebhook(req.body);
     res.status(200).send('OK');
   } catch (error) {
-    console.error('Webhook Error:', error);
-    res.status(500).send('Error');
+    console.error('[ROBOZAP] Webhook Processing Error:', error);
+    res.status(200).send('Webhook error handled'); // Don't let the server crash
   }
 });
 
