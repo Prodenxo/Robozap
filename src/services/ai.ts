@@ -16,9 +16,9 @@ export const getAIResponse = async (prompt: string, personality: string): Promis
     const response = await result.response;
     const text = response.text();
 
-    return text || botTexts.ai.error;
+    return text || botTexts.ai.errorGeneric;
   } catch (error) {
     console.error('Gemini Error:', error);
-    return botTexts.ai.error;
+    return botTexts.ai.errorGeneric;
   }
 };
