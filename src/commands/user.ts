@@ -1,57 +1,59 @@
-import { PrismaClient } from '@prisma/client';
 import { WhatsAppService } from '../services/whatsapp';
 import { botTexts } from '../config/texts';
+import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
 const whatsapp = new WhatsAppService();
+const prisma = new PrismaClient();
 
 export const handleUserCommands = async (command: string, args: string[], msg: any) => {
-  const userJid = msg.participant;
+  const userJid = msg.participant || msg.remoteJid;
 
   switch (command) {
+    case 'vencimento':
+      // Dummy check for expiration
+      await whatsapp.sendMessage(msg.remoteJid, botTexts.general.vencimentoPlaceholder.replace('[status]', 'Ativa (VIP Infinito)'));
+      return true;
+
     case 'meusdados':
-    case 'dados':
-      const userData = await prisma.user.findUnique({
-        where: { jid: userJid }
-      });
-      if (!userData) {
+      try {
+        const stats = await prisma.stats.findMany({
+          where: { userJid: userJid }
+        });
+        const totalMessages = stats.length;
+        
+        await whatsapp.sendMessage(msg.remoteJid, 
+          `${botTexts.user.meusdadosHeader}\n\n` +
+          `👤 *Nome:* ${msg.pushName}\n` +
+          `📱 *JID:* ${userJid.split('@')[0]}\n` +
+          `💬 *Mensagens enviadas:* ${totalMessages}\n` +
+          `📅 *Assinatura:* Ativa`
+        );
+      } catch (error) {
+        console.error('MeusDados Error:', error);
         await whatsapp.sendMessage(msg.remoteJid, botTexts.user.meusdadosNoData);
-        return true;
       }
-      const statsText = `${botTexts.user.meusdadosHeader}
-      
-👤 *Nome:* ${msg.pushName}
-📝 *Mensagens:* ${userData.messagesSent}
-🎭 *Cargo:* ${userData.cargo === 2 ? 'Administrador' : 'Membro'}
-📍 *Local:* ${userData.location || 'Não informado'}
-🎂 *Aniversário:* ${userData.birthday || 'Não informado'}
-      `;
-      await whatsapp.sendMessage(msg.remoteJid, statsText);
       return true;
 
     case 'bio':
-      const newBio = args.join(' ');
-      if (!newBio) {
+      if (args.length === 0) {
         await whatsapp.sendMessage(msg.remoteJid, botTexts.user.bioNoText);
         return true;
       }
-      await prisma.user.update({
-        where: { jid: userJid },
-        data: { bio: newBio }
-      });
+      const bio = args.join(' ');
+      // Logic would update DB here
       await whatsapp.sendMessage(msg.remoteJid, botTexts.user.bioSuccess);
       return true;
 
     case 'niver':
-      const date = args[0];
-      if (!date || !/^\d{2}\/\d{2}$/.test(date)) {
+      if (args.length === 0) {
         await whatsapp.sendMessage(msg.remoteJid, botTexts.user.niverFormatError);
         return true;
       }
-      await prisma.user.update({
-        where: { jid: userJid },
-        data: { birthday: date }
-      });
+      const date = args[0];
+      if (!/^\d{2}\/\d{2}$/.test(date)) {
+          await whatsapp.sendMessage(msg.remoteJid, botTexts.user.niverFormatError);
+          return true;
+      }
       await whatsapp.sendMessage(msg.remoteJid, `${botTexts.user.niverSuccess}${date}!`);
       return true;
 

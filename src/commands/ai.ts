@@ -1,35 +1,53 @@
-import { getAIResponse } from '../services/ai';
 import { WhatsAppService } from '../services/whatsapp';
+import { getAIResponse } from '../services/ai';
 import { botTexts } from '../config/texts';
+import { PrismaClient } from '@prisma/client';
 
 const whatsapp = new WhatsAppService();
+const prisma = new PrismaClient();
 
 export const handleAICommands = async (command: string, args: string[], msg: any) => {
   switch (command) {
     case 'filhote':
+    case 'chat':
+    case 'ia':
       if (args.length === 0) {
         await whatsapp.sendMessage(msg.remoteJid, botTexts.ai.filhoteNoText);
         return true;
       }
       const prompt = args.join(' ');
       const response = await getAIResponse(prompt, botTexts.identity.systemPrompt);
-      await whatsapp.sendMessage(msg.remoteJid, response || '');
+      await whatsapp.sendMessage(msg.remoteJid, response);
       return true;
 
     case 'resumir':
-    case 'resume':
     case 'resumo':
       await whatsapp.sendMessage(msg.remoteJid, botTexts.ai.summarizeStart);
-      // Simulating summarization via general AI response for now to keep it simple and free
-      const summary = await getAIResponse("Resuma as últimas conversas desse grupo de forma curta e debochada.", botTexts.identity.systemPrompt);
-      await whatsapp.sendMessage(msg.remoteJid, summary || '');
-      return true;
+      try {
+        // Fetch recent messages logically from the database for this group
+        const stats = await prisma.stats.findMany({
+          where: { groupJid: msg.remoteJid },
+          orderBy: { createdAt: 'desc' },
+          take: 30, // Last 30 messages
+          select: { text: true, userJid: true }
+        });
 
-    case 'ajuda':
-    case 'filhote.ajuda':
-      const q = args.join(' ');
-      const help = await getAIResponse(`O usuário quer ajuda sobre o bot. Pergunta: ${q}`, "Seja prestativo mas mantenha o deboche de cria do RJ.");
-      await whatsapp.sendMessage(msg.remoteJid, help || '');
+        if (stats.length === 0) {
+          await whatsapp.sendMessage(msg.remoteJid, botTexts.ai.errorNoMessages);
+          return true;
+        }
+
+        const chatContext = stats.reverse().map(s => `${s.userJid.split('@')[0]}: ${s.text}`).join('\n');
+        const summary = await getAIResponse(
+            `Resuma de forma engraçada, sarcástica e curta as seguintes mensagens de um grupo: \n\n${chatContext}`, 
+            botTexts.identity.summaryPrompt
+        );
+        
+        await whatsapp.sendMessage(msg.remoteJid, `📝 *Resumão da Resenha* 📝\n\n${summary}`);
+      } catch (error) {
+        console.error('Summarize Error:', error);
+        await whatsapp.sendMessage(msg.remoteJid, botTexts.ai.errorGeneric);
+      }
       return true;
 
     default:

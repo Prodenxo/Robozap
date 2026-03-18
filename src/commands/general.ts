@@ -1,25 +1,54 @@
 import { WhatsAppService } from '../services/whatsapp';
 import { botTexts } from '../config/texts';
 
-export const handleGeneralCommands = async (command: string, args: string[], msg: any) => {
-  const whatsapp = new WhatsAppService();
+const whatsapp = new WhatsAppService();
 
+export const handleGeneralCommands = async (command: string, args: string[], msg: any) => {
   switch (command) {
     case 'menu':
-      await whatsapp.sendMessage(msg.remoteJid, botTexts.general.menu);
-      return true;
+    case 'ajuda':
+    case 'comandos':
+      const menuText = `🌟 *ROBOZAP - Menu de Mandamentos* 🌟
 
-    case 'vencimento':
-      await whatsapp.sendMessage(msg.remoteJid, botTexts.general.vencimentoPlaceholder);
+🔥 *DE CRIA (IA)*
+🤖 *.filhote* [pergunta] - Troca ideia com o brabo.
+🧐 *.resumir* - Pega a visão da conversa.
+
+🖼️ *MÍDIA (BRABA)*
+🖼️ *.fig* - Faz figurinha na hora (mande ou responda foto).
+🎵 *.tocar* [nome] - Baixa a música do YouTube.
+📻 *.radio* - Pega o link da playlist.
+
+👑 *ADMIN (DONO DO MORRO)*
+👑 *.promover* - Dá cargo de admin (responda alguém).
+🧹 *.banir* / *.remover* - Vala no infeliz do grupo.
+📉 *.rebaixar* - Tira o cargo de quem tá folgado.
+⚠️ *.adv* - Manda o papo reto com advertência.
+
+🎲 *DIVERSÃO (ZEBRA)*
+🏆 *.sortear* [número] - Sorteia a rapaziada do grupo.
+🎯 *.chance* [pergunta] - Vê a chance de dar bom.
+🎲 *.dado* / *.moeda* - Joga a sorte pro alto.
+
+📱 *PERFIL (MEUS DADOS)*
+👤 *.meusdados* - Vê teu status no grupo.
+🗓️ *.vencimento* - Vê como tá tua assinatura.
+📝 *.bio* [texto] - Muda teu recado pro robô.
+🎂 *.niver* [DD/MM] - Marca teu aniversário.
+
+📍 *SOCIAL*
+📸 *.ig* [user] - Salva teu Instagram.
+📍 *.local* [lugar] - Salva de onde tu é.
+🎉 *.roles* - Lista os rolês marcados.
+
+_Dúvidas? Mande um zap pro Mohammed._`;
+      
+      await whatsapp.sendMessage(msg.remoteJid, menuText);
       return true;
 
     case 'teste':
-    case 'oi':
-    case 'fala':
-    case 'salve':
-      const responses = botTexts.general.testReplies;
-      const randomMsg = responses[Math.floor(Math.random() * responses.length)];
-      await whatsapp.sendMessage(msg.remoteJid, randomMsg);
+      const randomReply = botTexts.general.testReplies[Math.floor(Math.random() * botTexts.general.testReplies.length)];
+      await whatsapp.sendMessage(msg.remoteJid, randomReply);
       return true;
 
     default:
