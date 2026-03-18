@@ -5,25 +5,27 @@ import path from 'path';
 
 dotenv.config();
 
+// Helper to remove any potential quotes from env variables (common in Easypanel/Docker)
+const cleanValue = (val: string | undefined) => val?.replace(/['"]+/g, '').trim() || '';
+
 export class WhatsAppService {
   private baseUrl: string;
   private apiKey: string;
   private instance: string;
 
   constructor() {
-    this.baseUrl = process.env.EVOLUTION_API_URL || '';
-    this.apiKey = process.env.EVOLUTION_API_KEY || '';
-    this.instance = process.env.EVOLUTION_INSTANCE_NAME || '';
+    this.baseUrl = cleanValue(process.env.EVOLUTION_API_URL);
+    this.apiKey = cleanValue(process.env.EVOLUTION_API_KEY);
+    this.instance = cleanValue(process.env.EVOLUTION_INSTANCE_NAME);
   }
 
   async sendMessage(remoteJid: string, text: string) {
     try {
-      // Adjusted for Evolution API v2 requirement: 'text' property must be at the root
       await axios.post(
         `${this.baseUrl}/message/sendText/${this.instance}`,
         {
           number: remoteJid,
-          text: text, // Correct for v2
+          text: text,
           options: {
             delay: 1200,
             presence: 'composing',
@@ -48,7 +50,6 @@ export class WhatsAppService {
       if (typeof stickerData === 'string') {
         stickerPayload.sticker = stickerData;
       } else {
-        // Handle other sticker types if needed
         stickerPayload.sticker = stickerData;
       }
 

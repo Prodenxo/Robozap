@@ -1,9 +1,11 @@
 import OpenAI from 'openai';
 import { botTexts } from '../config/texts';
 
-// Initialize OpenAI client with Groq support
+// Function to clean environment variables (removing potential quotes)
+const cleanKey = (key: string | undefined) => key?.replace(/['"]+/g, '').trim() || '';
+
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY?.trim() || '',
+  apiKey: cleanKey(process.env.OPENAI_API_KEY),
   baseURL: 'https://api.groq.com/openai/v1',
 });
 
@@ -18,13 +20,8 @@ const fallbackReplies = [
 
 export const getAIResponse = async (prompt: string, personality: string): Promise<string> => {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-        console.error('[ROBOZAP ERROR]: OPENAI_API_KEY is missing!');
-        return fallbackReplies[0];
-    }
-
     const response = await openai.chat.completions.create({
-      model: "llama3-8b-8192", // More stable free tier model
+      model: "llama3-8b-8192",
       messages: [
         { role: "system", content: personality },
         { role: "user", content: prompt }
@@ -33,21 +30,9 @@ export const getAIResponse = async (prompt: string, personality: string): Promis
       temperature: 0.8,
     });
 
-    const reply = response.choices[0]?.message?.content;
-    
-    if (!reply) {
-        throw new Error('Groq returned empty content');
-    }
-
-    return reply;
+    return response.choices[0]?.message?.content || fallbackReplies[0];
   } catch (error: any) {
-    // CRITICAL: Look at your Easypanel logs for this!
-    console.error('[GROQ FATAL ERROR]:', error.message || error);
-    
-    if (error.status === 401) {
-        console.error('DETECTED: Your GSK API Key is Invalid/Expired.');
-    }
-
+    console.error('[GROQ ERROR]:', error.message || error);
     return fallbackReplies[Math.floor(Math.random() * fallbackReplies.length)];
   }
 };
