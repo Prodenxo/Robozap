@@ -13,11 +13,11 @@ export class MediaService {
 
   async downloadMusic(url: string, outputPath: string): Promise<void> {
     try {
-      console.log(`[YT-DLP] Tentando download com bypass: ${url}`);
+      console.log(`[YT-DLP] Tentando disfarce de iOS para: ${url}`);
       
-      // O comando correto para fingir ser Android no yt-dlp é via --extractor-args
+      // O modo iOS é atualmente o mais forte para burlar o "Sign in to confirm you're not a bot"
       const command = `yt-dlp \
-        --extractor-args "youtube:player_client=android,web" \
+        --extractor-args "youtube:player_client=ios" \
         -f "ba" -x --audio-format mp3 --audio-quality 0 \
         --no-playlist \
         --no-check-certificates \
@@ -26,13 +26,13 @@ export class MediaService {
       await execAsync(command);
       
       if (!fs.existsSync(outputPath)) {
-          throw new Error('Arquivo não encontrado após o download.');
+          throw new Error('Arquivo não foi gerado.');
       }
 
-      console.log(`[YT-DLP] Sucesso!`);
+      console.log(`[YT-DLP] Sucesso no download!`);
     } catch (error: any) {
       console.error('[YT-DLP ERROR]:', error.message || error);
-      throw new Error('O YouTube bloqueou o download. Tente outro link ou tente mais tarde.');
+      throw new Error('O YouTube bloqueou o download por detectar o servidor. Tente outro link.');
     }
   }
 }
