@@ -21,11 +21,10 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
       const luckyOne = allParts[Math.floor(Math.random() * allParts.length)];
       if (!luckyOne) return true;
 
-      const num = luckyOne.userJid.split('@')[0];
-      const name = luckyOne.user?.pushName || num;
+      const name = luckyOne.user?.pushName || luckyOne.userJid.split('@')[0];
       const mentionJid = luckyOne.userJid;
 
-      const response = `🎯 *CHANCE DE: ${query.toUpperCase()}*\n\n📈 Resultado: *${percentage}%*\n🕵️ Provável culpado: @${num} (${name})`;
+      const response = `🎯 *CHANCE DE: ${query.toUpperCase()}*\n\n📈 Resultado: *${percentage}%*\n🕵️ Provável culpado: @${name}`;
       await whatsapp.sendMessage(msg.remoteJid, response, [mentionJid]);
       return true;
 
@@ -47,11 +46,7 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
         const chosen = shuffled.slice(0, quantity);
         const mentionList = chosen.map((u: any) => u.userJid);
         
-        const winnersText = chosen.map((u: any) => {
-            const n = u.userJid.split('@')[0];
-            const p = u.user?.pushName || n;
-            return `@${n} (${p})`;
-        }).join(', ');
+        const winnersText = chosen.map((u: any) => `@${u.user?.pushName || u.userJid.split('@')[0]}`).join(', ');
 
         await whatsapp.sendMessage(msg.remoteJid, `🎉 *OS SORTEADOS DO FILHOTE SÃO*:\n\n${winnersText}`, mentionList);
       } catch (error) {
@@ -101,10 +96,8 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
         if (mentioned.length >= 2) {
           const userA = await (prisma as any).user.findUnique({ where: { jid: mentioned[0] } });
           const userB = await (prisma as any).user.findUnique({ where: { jid: mentioned[1] } });
-          const numA = mentioned[0].split('@')[0];
-          const numB = mentioned[1].split('@')[0];
-          u1Data = { jid: mentioned[0], display: `@${numA} (${userA?.pushName || numA})` };
-          u2Data = { jid: mentioned[1], display: `@${numB} (${userB?.pushName || numB})` };
+          u1Data = { jid: mentioned[0], display: `@${userA?.pushName || mentioned[0].split('@')[0]}` };
+          u2Data = { jid: mentioned[1], display: `@${userB?.pushName || mentioned[1].split('@')[0]}` };
         } else {
           const allMembers = await (prisma as any).groupParticipant.findMany({ 
               where: { groupId: group.id },
@@ -117,10 +110,8 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
           }
 
           const shuffled = allMembers.sort(() => 0.5 - Math.random());
-          const num1 = shuffled[0].userJid.split('@')[0];
-          const num2 = shuffled[1].userJid.split('@')[0];
-          u1Data = { jid: shuffled[0].userJid, display: `@${num1} (${shuffled[0].user?.pushName || num1})` };
-          u2Data = { jid: shuffled[1].userJid, display: `@${num2} (${shuffled[1].user?.pushName || num2})` };
+          u1Data = { jid: shuffled[0].userJid, display: `@${shuffled[0].user?.pushName || shuffled[0].userJid.split('@')[0]}` };
+          u2Data = { jid: shuffled[1].userJid, display: `@${shuffled[1].user?.pushName || shuffled[1].userJid.split('@')[0]}` };
         }
 
         if (u1Data && u2Data) {
