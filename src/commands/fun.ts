@@ -19,11 +19,14 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
           include: { user: true }
       });
       const luckyOne = allParts[Math.floor(Math.random() * allParts.length)];
-      const name = luckyOne?.user?.pushName || luckyOne?.userJid.split('@')[0] || 'alguém';
-      const mentionJid = luckyOne?.userJid;
+      if (!luckyOne) return true;
 
-      const response = `🎯 *CHANCE DE: ${query.toUpperCase()}*\n\n📈 Resultado: *${percentage}%*\n🕵️ Provável culpado: @${name}`;
-      await whatsapp.sendMessage(msg.remoteJid, response, mentionJid ? [mentionJid] : []);
+      const num = luckyOne.userJid.split('@')[0];
+      const name = luckyOne.user?.pushName || num;
+      const mentionJid = luckyOne.userJid;
+
+      const response = `🎯 *CHANCE DE: ${query.toUpperCase()}*\n\n📈 Resultado: *${percentage}%*\n🕵️ Provável culpado: @${num} (${name})`;
+      await whatsapp.sendMessage(msg.remoteJid, response, [mentionJid]);
       return true;
 
     case 'sortear':
@@ -44,7 +47,12 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
         const chosen = shuffled.slice(0, quantity);
         const mentionList = chosen.map((u: any) => u.userJid);
         
-        const winnersText = chosen.map((u: any) => `@${u.user?.pushName || u.userJid.split('@')[0]}`).join(', ');
+        const winnersText = chosen.map((u: any) => {
+            const n = u.userJid.split('@')[0];
+            const p = u.user?.pushName || n;
+            return `@${n} (${p})`;
+        }).join(', ');
+
         await whatsapp.sendMessage(msg.remoteJid, `🎉 *OS SORTEADOS DO FILHOTE SÃO*:\n\n${winnersText}`, mentionList);
       } catch (error) {
         console.error('Sorteio Error:', error);
@@ -86,18 +94,18 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
         const group = await (prisma as any).group.findUnique({ where: { jid: msg.remoteJid } });
         if (!group) return true;
 
-        let user1: { jid: string; name: string } | null = null;
-        let user2: { jid: string; name: string } | null = null;
+        let u1Data: { jid: string; display: string } | null = null;
+        let u2Data: { jid: string; display: string } | null = null;
 
         const mentioned = msg.mentionedJid || [];
         if (mentioned.length >= 2) {
-          // Usar os mencionados diretamente
-          const u1 = await (prisma as any).user.findUnique({ where: { jid: mentioned[0] } });
-          const u2 = await (prisma as any).user.findUnique({ where: { jid: mentioned[1] } });
-          user1 = { jid: mentioned[0], name: u1?.pushName || mentioned[0].split('@')[0] };
-          user2 = { jid: mentioned[1], name: u2?.pushName || mentioned[1].split('@')[0] };
+          const userA = await (prisma as any).user.findUnique({ where: { jid: mentioned[0] } });
+          const userB = await (prisma as any).user.findUnique({ where: { jid: mentioned[1] } });
+          const numA = mentioned[0].split('@')[0];
+          const numB = mentioned[1].split('@')[0];
+          u1Data = { jid: mentioned[0], display: `@${numA} (${userA?.pushName || numA})` };
+          u2Data = { jid: mentioned[1], display: `@${numB} (${userB?.pushName || numB})` };
         } else {
-          // Sortear do banco
           const allMembers = await (prisma as any).groupParticipant.findMany({ 
               where: { groupId: group.id },
               include: { user: true }
@@ -109,15 +117,17 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
           }
 
           const shuffled = allMembers.sort(() => 0.5 - Math.random());
-          user1 = { jid: shuffled[0].userJid, name: shuffled[0].user?.pushName || shuffled[0].userJid.split('@')[0] };
-          user2 = { jid: shuffled[1].userJid, name: shuffled[1].user?.pushName || shuffled[1].userJid.split('@')[0] };
+          const num1 = shuffled[0].userJid.split('@')[0];
+          const num2 = shuffled[1].userJid.split('@')[0];
+          u1Data = { jid: shuffled[0].userJid, display: `@${num1} (${shuffled[0].user?.pushName || num1})` };
+          u2Data = { jid: shuffled[1].userJid, display: `@${num2} (${shuffled[1].user?.pushName || num2})` };
         }
 
-        if (user1 && user2) {
+        if (u1Data && u2Data) {
           const casalText = botTexts.fun.casal
-            .replace('#USER1', user1.name)
-            .replace('#USER2', user2.name);
-          await whatsapp.sendMessage(msg.remoteJid, casalText, [user1.jid, user2.jid]);
+            .replace('#USER1', u1Data.display)
+            .replace('#USER2', u2Data.display);
+          await whatsapp.sendMessage(msg.remoteJid, casalText, [u1Data.jid, u2Data.jid]);
         }
       } catch (e) {
         console.error('Error in casal:', e);

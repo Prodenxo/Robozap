@@ -27,13 +27,8 @@ export class WhatsAppService {
       await axios.post(`${this.baseUrl}/message/sendText/${this.instance}`, {
         number: remoteJid,
         text: text,
-        mentions: mentions,
-        options: { 
-            delay: 1200, 
-            presence: 'composing', 
-            linkPreview: false,
-            mentions: mentions
-        }
+        linkPreview: false,
+        mentions: mentions
       }, { headers: this.headers });
     } catch (error: any) {
       console.error('Error sending message:', error.response?.data || error.message);
