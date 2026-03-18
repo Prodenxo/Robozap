@@ -13,15 +13,22 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
     case 'fig':
     case 'sticker':
       const msgContent = msg.raw?.message || {};
-      const quotedContent = msg.raw?.message?.extendedTextMessage?.contextInfo?.quotedMessage || {};
+      const quotedContent = msg.quoted || {};
+
+      console.log(`[MEDIA] msgContent keys: ${Object.keys(msgContent)}`);
+      console.log(`[MEDIA] quotedContent keys: ${Object.keys(quotedContent)}`);
 
       // Helper to find media in nested structures (viewOnce, ephemeral, etc)
       const findMedia = (m: any) => {
           if (!m) return null;
+          // Se o objeto já for a mídia, retorna ele mesmo
+          if (m.url || m.directPath || m.mediaKey) return m;
+          
           return m.imageMessage || m.stickerMessage || m.videoMessage || 
                  m.viewOnceMessage?.message?.imageMessage || 
                  m.viewOnceMessageV2?.message?.imageMessage ||
-                 m.ephemeralMessage?.message?.imageMessage;
+                 m.ephemeralMessage?.message?.imageMessage ||
+                 m.documentWithCaptionMessage?.message?.imageMessage;
       };
 
       const mediaContent = findMedia(msgContent);
