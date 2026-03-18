@@ -59,13 +59,24 @@ export class WhatsAppService {
 
   async sendSticker(remoteJid: string, sticker: string | Buffer) {
     try {
-      const stickerData = typeof sticker === 'string' ? sticker : sticker.toString('base64');
+      let stickerData = typeof sticker === 'string' ? sticker : sticker.toString('base64');
+      
+      // Limpeza se vier com prefixo data:image/...;base64,
+      if (stickerData.includes(';base64,')) {
+          stickerData = stickerData.split(';base64,')[1];
+      }
+
+      console.log(`[WHATSAPP] Sending sticker to ${remoteJid}. Length: ${stickerData.length}, Start: ${stickerData.substring(0, 20)}`);
+
       await axios.post(`${this.baseUrl}/message/sendSticker/${this.instance}`, {
         number: remoteJid,
         sticker: stickerData
-      }, { headers: this.headers });
+      }, { 
+          headers: this.headers,
+          timeout: 60000 // 60 segundos para conversão webp
+      });
     } catch (error: any) {
-      console.error('Error sending sticker:', error.response?.data || error.message);
+      console.error('[WHATSAPP] Error sending sticker:', error.response?.data || error.message);
     }
   }
 
