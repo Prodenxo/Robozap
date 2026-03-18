@@ -39,6 +39,35 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
       }
       return true;
 
+    case 'role.encerrar':
+    case 'role.cancelar':
+    case 'resenha.cancelar':
+    case 'resenha.fim':
+      try {
+        const group = await (prisma as any).group.findUnique({ where: { jid: msg.remoteJid } });
+        if (!group) return true;
+
+        const latestRole = await (prisma as any).roleEvent.findFirst({
+          where: { groupId: group.id, active: true },
+          orderBy: { createdAt: 'desc' }
+        });
+
+        if (!latestRole) {
+          await whatsapp.sendMessage(msg.remoteJid, "❌ Não tem nenhum rolê ativo no momento para encerrar.");
+          return true;
+        }
+
+        await (prisma as any).roleEvent.update({
+          where: { id: latestRole.id },
+          data: { active: false }
+        });
+
+        await whatsapp.sendMessage(msg.remoteJid, `🏁 *ROLÊ FINALIZADO!* 🔒\nO rolê "${latestRole.title}" foi encerrado e não aceita mais participações.`);
+      } catch (error) {
+        console.error('Error ending role:', error);
+      }
+      return true;
+
     case 'vou':
     case 'role.vou':
     case 'nvou':

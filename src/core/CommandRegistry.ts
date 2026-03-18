@@ -42,6 +42,10 @@ export const COMMAND_MAP: Record<string, Function> = {
   // SOCIAL
   'role.criar': handleSocialCommands,
   'resenha.criar': handleSocialCommands,
+  'role.encerrar': handleSocialCommands,
+  'role.cancelar': handleSocialCommands,
+  'resenha.cancelar': handleSocialCommands,
+  'resenha.fim': handleSocialCommands,
   'roles': handleSocialCommands,
   'role.vou': handleSocialCommands,
   'vou': handleSocialCommands,
