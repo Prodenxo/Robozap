@@ -24,20 +24,41 @@ export class WhatsAppService {
 
   async sendMessage(remoteJid: string, text: string, mentions: string[] = []) {
     try {
-      // Enviamos as menções tanto na raiz quanto no options para garantir o azulzinho
       await axios.post(`${this.baseUrl}/message/sendText/${this.instance}`, {
         number: remoteJid,
         text: text,
-        mentions: mentions, // Nível raiz (Evolution v2)
+        mentions: mentions,
         options: { 
             delay: 1200, 
             presence: 'composing', 
             linkPreview: false,
-            mentions: mentions // Nível options (Fallback)
+            mentions: mentions
         }
       }, { headers: this.headers });
     } catch (error: any) {
       console.error('Error sending message:', error.response?.data || error.message);
+    }
+  }
+
+  // --- ADMIN ACTIONS (COM DEBUG) ---
+  async groupUpdateParticipant(groupJid: string, action: 'add' | 'remove' | 'promote' | 'demote', participants: string[]) {
+    try {
+      console.log(`[EVOLUTION API] Executando ${action} em ${participants[0]} no grupo ${groupJid}...`);
+      
+      const response = await axios.post(`${this.baseUrl}/group/updateParticipant/${this.instance}`, {
+        groupJid: groupJid,
+        action: action,
+        participants: participants
+      }, { headers: this.headers });
+
+      console.log(`[EVOLUTION OK] Status: ${response.status} | Data:`, JSON.stringify(response.data));
+    } catch (error: any) {
+      console.error(`[EVOLUTION FATAL ERROR] Erro ao carregar ${action} no grupo!`);
+      if (error.response) {
+          console.error(`Status: ${error.response.status} | Resposta:`, JSON.stringify(error.response.data));
+      } else {
+          console.error(`Mensagem: ${error.message}`);
+      }
     }
   }
 
@@ -66,18 +87,6 @@ export class WhatsAppService {
       }, { headers: this.headers });
     } catch (error: any) {
       console.error('Error sending media:', error.response?.data || error.message);
-    }
-  }
-
-  async groupUpdateParticipant(groupJid: string, action: 'add' | 'remove' | 'promote' | 'demote', participants: string[]) {
-    try {
-      await axios.post(`${this.baseUrl}/group/updateParticipant/${this.instance}`, {
-        groupJid: groupJid,
-        action: action,
-        participants: participants
-      }, { headers: this.headers });
-    } catch (error: any) {
-      console.error(`Error ${action} participant:`, error.response?.data || error.message);
     }
   }
 }

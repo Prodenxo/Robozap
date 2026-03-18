@@ -18,7 +18,6 @@ export const handleWebhook = async (data: any) => {
   if (!message || message.key.fromMe) return;
 
   const msgContent = message.message || {};
-  
   const textContent = 
     msgContent.conversation || 
     msgContent.extendedTextMessage?.text || 
@@ -26,23 +25,22 @@ export const handleWebhook = async (data: any) => {
     msgContent.videoMessage?.caption || 
     '';
 
-  if (!textContent) return;
+  // --- FILTRO DE COMANDO ---
+  // Só processamos e logamos se a mensagem começar com o ponto (.)
+  if (!textContent.trim().startsWith('.')) return;
 
   const remoteJid = message.key.remoteJid;
   const participant = message.key.participant || remoteJid;
   const senderName = message.pushName || 'Usuário';
 
   // --- OMNI-SCANNER v3 ---
-  // Procuramos 'contextInfo' em qualquer nível da mensagem
   const context = findField(message, 'contextInfo');
-  
-  // O alvo pode ser 'participant' (em respostas) ou 'mentionedJid' (em marcações)
   const quotedParticipant = context?.participant || context?.quotedMessage?.key?.participant;
   const mentionedJid = context?.mentionedJid || [];
 
-  // LOG DE DEPURAÇÃO PARA MATAR A CHARADA
-  console.log(`[WEBHOOK] ${senderName} mandou: ${textContent}`);
-  console.log(`[RADAR] Alvo Encontrado: ${quotedParticipant || (mentionedJid.length > 0 ? mentionedJid[0] : 'NENHUM')}`);
+  // LOG SÓ PARA COMANDOS AGORA
+  console.log(`[COMANDO RECEBIDO] ${senderName}: ${textContent}`);
+  console.log(`[RADAR] Alvo: ${quotedParticipant || (mentionedJid.length > 0 ? mentionedJid[0] : 'NENHUM')}`);
 
   await processMessage({
     id: message.key.id,
