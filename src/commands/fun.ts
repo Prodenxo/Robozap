@@ -1,9 +1,8 @@
+import { prisma } from '../services/database';
 import { WhatsAppService } from '../services/whatsapp';
 import { botTexts } from '../config/texts';
-import { PrismaClient } from '@prisma/client';
 
 const whatsapp = new WhatsAppService();
-const prisma = new PrismaClient();
 
 export const handleFunCommands = async (command: string, args: string[], msg: any) => {
   switch (command) {

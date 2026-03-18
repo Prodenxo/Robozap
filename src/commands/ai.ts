@@ -1,10 +1,9 @@
 import { WhatsAppService } from '../services/whatsapp';
 import { getAIResponse } from '../services/ai';
 import { botTexts } from '../config/texts';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../services/database';
 
 const whatsapp = new WhatsAppService();
-const prisma = new PrismaClient();
 
 export const handleAICommands = async (command: string, args: string[], msg: any) => {
   switch (command) {
@@ -25,7 +24,7 @@ export const handleAICommands = async (command: string, args: string[], msg: any
       await whatsapp.sendMessage(msg.remoteJid, botTexts.ai.summarizeStart);
       try {
         // Fetch recent messages logically from the database for this group
-        const logs = await prisma.messageLog.findMany({
+        const logs = await (prisma as any).messageLog.findMany({
           where: { group: { jid: msg.remoteJid } },
           orderBy: { createdAt: 'desc' },
           take: 30, // Last 30 messages

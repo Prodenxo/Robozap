@@ -1,9 +1,8 @@
 import { WhatsAppService } from '../services/whatsapp';
 import { botTexts } from '../config/texts';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../services/database';
 
 const whatsapp = new WhatsAppService();
-const prisma = new PrismaClient();
 
 export const handleAdminCommands = async (command: string, args: string[], msg: any) => {
   const isGroup = msg.remoteJid.endsWith('@g.us');
