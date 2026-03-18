@@ -18,17 +18,16 @@ export class WhatsAppService {
 
   async sendMessage(remoteJid: string, text: string) {
     try {
+      // Adjusted for Evolution API v2 requirement: 'text' property must be at the root
       await axios.post(
         `${this.baseUrl}/message/sendText/${this.instance}`,
         {
           number: remoteJid,
+          text: text, // Correct for v2
           options: {
             delay: 1200,
             presence: 'composing',
             linkPreview: false
-          },
-          textMessage: {
-            text: text
           }
         },
         {
@@ -48,10 +47,9 @@ export class WhatsAppService {
 
       if (typeof stickerData === 'string') {
         stickerPayload.sticker = stickerData;
-      } else if (stickerData.message?.imageMessage?.url) {
-        // If it's a message object from evolution, we can try to pass the media content
-        // This depends on evolution API version, but usually we can send the messageId to convert
-        stickerPayload.base64 = stickerData.message.imageMessage.url; // Or implementation-specific
+      } else {
+        // Handle other sticker types if needed
+        stickerPayload.sticker = stickerData;
       }
 
       await axios.post(
@@ -68,24 +66,20 @@ export class WhatsAppService {
 
   async sendMedia(remoteJid: string, mediaPath: string, type: 'audio' | 'video' | 'image') {
     try {
-      // For local files, we'd normally need to upload or use a base64 string
-      // Evolution API supports sending base64 or a public URL.
-      // Since this is local, we'll convert to base64.
       const mediaBuffer = fs.readFileSync(mediaPath);
       const base64 = mediaBuffer.toString('base64');
       const fileName = path.basename(mediaPath);
-      const mimeType = type === 'audio' ? 'audio/mp4' : (type === 'image' ? 'image/jpeg' : 'video/mp4');
+      const mimeType = type === 'audio' ? 'audio/mpeg' : (type === 'image' ? 'image/jpeg' : 'video/mp4');
 
       await axios.post(
         `${this.baseUrl}/message/sendMedia/${this.instance}`,
         {
           number: remoteJid,
-          mediaMessage: {
-            mediatype: type,
-            fileName: fileName,
-            caption: type === 'audio' ? '' : 'Enviado por RoboZap',
-            media: base64
-          }
+          mediatype: type,
+          mimetype: mimeType,
+          caption: type === 'audio' ? '' : 'Enviado por RoboZap',
+          media: base64,
+          fileName: fileName
         },
         {
           headers: { 'apikey': this.apiKey }
@@ -95,6 +89,4 @@ export class WhatsAppService {
       console.error('Error sending media:', error.response?.data || error.message);
     }
   }
-
-  // TODO: Add methods for sending images, stickers, etc.
 }
