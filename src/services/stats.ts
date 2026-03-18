@@ -11,35 +11,23 @@ export class StatsService {
       });
 
       // 2. Ensure Group exists
-      await (prisma as any).group.upsert({
+      const group = await (prisma as any).group.upsert({
         where: { jid: groupJid },
         update: {},
         create: { jid: groupJid }
       });
 
       // 3. Ensure GroupParticipant link exists (The missing piece!)
-      const participant = await (prisma as any).groupParticipant.findUnique({
-        where: { groupId_userJid: { groupId: groupJid, userJid } }
+      // We use the group's UUID (group.id) now, instead of the JID
+      await (prisma as any).groupParticipant.upsert({
+          where: { groupId_userJid: { groupId: group.id, userJid } },
+          update: { messagesSent: { increment: 1 } },
+          create: { 
+              group: { connect: { id: group.id } },
+              user: { connect: { jid: userJid } },
+              messagesSent: 1
+          }
       });
-
-      if (!participant) {
-        // Try connect by jids if possible, but schema uses ID for relation
-        // Actually, we can use the unique constraint for upsert
-        await (prisma as any).groupParticipant.upsert({
-            where: { groupId_userJid: { groupId: groupJid, userJid } },
-            update: { messagesSent: { increment: 1 } },
-            create: { 
-                group: { connect: { jid: groupJid } },
-                user: { connect: { jid: userJid } },
-                messagesSent: 1
-            }
-        });
-      } else {
-          await (prisma as any).groupParticipant.update({
-              where: { id: participant.id },
-              data: { messagesSent: { increment: 1 } }
-          });
-      }
 
       // 4. Log Message
       await (prisma as any).messageLog.create({

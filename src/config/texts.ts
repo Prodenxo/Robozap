@@ -51,7 +51,12 @@ export const botTexts = {
     chanceHeader: "📊 *O FILHOTE AVISA:* A chance de ",
     sorteio: "🏆 *SORTEADO DA VEZ:* ",
     versiculo: "📖 *FILHOTE TAMBÉM É SANTO:* ",
-    sdia: "🍀 *SORTE DO DIA:* "
+    sdia: "🍀 *SORTE DO DIA:* ",
+    viadometro: "🌈 *VIADÔMETRO DO FILHOTE:* Você está *#RESULT%* viado! ",
+    gadometro: "🐂 *GADÔMETRO DO FILHOTE:* Você está *#RESULT%* gado! ",
+    bafometro: "🍻 *BAFÔMETRO DO FILHOTE:* Você está *#RESULT%* bêbado! ",
+    detector: "🕵️ *DETECTOR DE MENTIRA:* Analisei o que tu disse... O resultado é: *#RESULT*!",
+    casal: "💑 *CASAL DO ANO:* @#USER1 e @#USER2! Shipam?",
   },
   media: {
     figStart: "🚀 *Saindo uma figurinha do forno!* Espera aí, parceiro...",
@@ -60,7 +65,9 @@ export const botTexts = {
     musicaNoText: "🎵 *QUER OUVIR O QUÊ?* Manda o nome da música ou o link, não sou vidente.",
     musicaErrorNotFound: "🚫 *ACHEI FOI NADA.* Essa música aí nem existe na minha quebrada. Tenta outro nome.",
     musicaSearch: "🔍 *BUSCANDO BRABA:* \"$query\"... Já te mando o som!",
-    musicaErrorGeneric: "💀 *ERRO CRÍTICO, PARCEIRO.* O som tá travado. O YouTube tá de marcação comigo."
+    musicaErrorGeneric: "💀 *ERRO CRÍTICO, PARCEIRO.* O som tá travado. O YouTube tá de marcação comigo.",
+    downloadStart: "📥 *PEGANDO A BRABA:* Peraí que tô baixando o vídeo pra tu...",
+    downloadErrorGeneric: "❌ *DEU RUIM NO DOWNLOAD.* Essa rede aí tá bloqueando o Filhote. Tenta outra.",
   },
   social: {
     roleCriado: "🔥 *NOVO ROLÊ NA PISTA!* Código: ",

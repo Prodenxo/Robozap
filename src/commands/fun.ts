@@ -63,7 +63,42 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
       await whatsapp.sendMessage(msg.remoteJid, `🪙 Girei a moeda... caiu *${coin}*!`);
       return true;
 
+    case 'viadometro':
+    case 'gadometro':
+    case 'bafometro':
+      const resultPercent = Math.floor(Math.random() * 101);
+      let text = '';
+      if (command === 'viadometro') text = botTexts.fun.viadometro.replace('#RESULT', resultPercent.toString());
+      if (command === 'gadometro') text = botTexts.fun.gadometro.replace('#RESULT', resultPercent.toString());
+      if (command === 'bafometro') text = botTexts.fun.bafometro.replace('#RESULT', resultPercent.toString());
+      await whatsapp.sendMessage(msg.remoteJid, text);
+      return true;
+
+    case 'detector':
+      const results = ['VERDADE ✅', 'MENTIRA ❌', 'TALVEZ... 🤔', 'KAÔ PURO 🤥', 'SINTO CHEIRO DE MENTIRA 👃'];
+      const detectorResult = results[Math.floor(Math.random() * results.length)];
+      await whatsapp.sendMessage(msg.remoteJid, botTexts.fun.detector.replace('#RESULT', detectorResult));
+      return true;
+
+    case 'casal':
+      const allMembers = await (prisma as any).groupParticipant.findMany({ 
+          where: { group: { jid: msg.remoteJid } },
+          select: { userJid: true }
+      });
+      if (allMembers.length < 2) {
+        await whatsapp.sendMessage(msg.remoteJid, "Pô, precisa de pelo menos 2 pessoas no grupo pra eu formar um casal!");
+        return true;
+      }
+      const shuffledMembers = allMembers.sort(() => 0.5 - Math.random());
+      const user1 = shuffledMembers[0].userJid;
+      const user2 = shuffledMembers[1].userJid;
+      const casalText = botTexts.fun.casal
+        .replace('#USER1', user1.split('@')[0])
+        .replace('#USER2', user2.split('@')[0]);
+      await whatsapp.sendMessage(msg.remoteJid, casalText, [user1, user2]);
+      return true;
+
     default:
       return false;
   }
-};
+}

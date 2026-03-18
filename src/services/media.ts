@@ -43,8 +43,6 @@ export class MediaService {
 
       console.log(`[YT-DLP] Bypass com Deno e Cookies: ${url}`);
       
-      // --js-runtimes deno forces yt-dlp to use the resolver we just installed
-      // -f "bestaudio/best" is more flexible than searching for a specific audio format
       const command = `yt-dlp \
         --js-runtimes deno \
         --cookies "${cookiesPath}" \
@@ -63,6 +61,31 @@ export class MediaService {
     } catch (error: any) {
       console.error('[YT-DLP ERROR]:', error.message || error);
       throw new Error('O YouTube bloqueou a assinatura do vídeo. Tentando contornar...');
+    }
+  }
+
+  async downloadVideo(url: string, outputPath: string): Promise<void> {
+    try {
+      const cookiesPath = path.join(process.cwd(), 'cookies.txt');
+      console.log(`[YT-DLP] Downloading Video: ${url}`);
+      
+      const command = `yt-dlp \
+        --js-runtimes deno \
+        --cookies "${cookiesPath}" \
+        -f "bestvideo+bestaudio/best" --merge-output-format mp4 \
+        --no-playlist \
+        --no-check-certificates \
+        "${url}" -o "${outputPath}"`;
+      
+      await execAsync(command);
+      
+      if (!fs.existsSync(outputPath)) {
+          throw new Error('O vídeo não foi gerado.');
+      }
+      console.log(`[YT-DLP] Video Sucesso!`);
+    } catch (error: any) {
+      console.error('[YT-DLP VIDEO ERROR]:', error.message || error);
+      throw new Error('Erro ao baixar vídeo. Pode ser link privado ou bloqueado.');
     }
   }
 }
