@@ -40,6 +40,8 @@ export const COMMAND_MAP: Record<string, Function> = {
   'meignore': handleUserCommands,
 
   // SOCIAL
+  'role.criar': handleSocialCommands,
+  'resenha.criar': handleSocialCommands,
   'roles': handleSocialCommands,
   'role.vou': handleSocialCommands,
   'vou': handleSocialCommands,
