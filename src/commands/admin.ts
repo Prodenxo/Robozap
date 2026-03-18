@@ -44,6 +44,14 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       await whatsapp.sendMessage(msg.remoteJid, advMsg);
       return true;
 
+    case 'promover':
+      if (mentionedJids.length === 0) {
+        await whatsapp.sendMessage(msg.remoteJid, botTexts.admin.noMention);
+        return true;
+      }
+      await whatsapp.sendMessage(msg.remoteJid, `👑 Agora @${mentionedJids[0].split('@')[0]} é admin da firma!`);
+      return true;
+
     default:
       return false;
   }
