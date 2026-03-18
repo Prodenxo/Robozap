@@ -56,7 +56,7 @@ export const botTexts = {
     gadometro: "🐂 *GADÔMETRO DO FILHOTE:* Você está *#RESULT%* gado! ",
     bafometro: "🍻 *BAFÔMETRO DO FILHOTE:* Você está *#RESULT%* bêbado! ",
     detector: "🕵️ *DETECTOR DE MENTIRA:* Analisei o que tu disse... O resultado é: *#RESULT*!",
-    casal: "💑 *CASAL DO ANO:* @#USER1 e @#USER2! Shipam?",
+    casal: "💑 *CASAL DO ANO:* #USER1 e #USER2! Shipam?",
   },
   media: {
     figStart: "🚀 *Saindo uma figurinha do forno!* Espera aí, parceiro...",
