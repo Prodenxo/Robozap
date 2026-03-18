@@ -82,21 +82,30 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
       return true;
 
     case 'casal':
-      const allMembers = await (prisma as any).groupParticipant.findMany({ 
-          where: { group: { jid: msg.remoteJid } },
-          select: { userJid: true }
-      });
-      if (allMembers.length < 2) {
-        await whatsapp.sendMessage(msg.remoteJid, "Pô, precisa de pelo menos 2 pessoas no grupo pra eu formar um casal!");
-        return true;
+      try {
+        const allMembers = await (prisma as any).groupParticipant.findMany({ 
+            where: { group: { jid: msg.remoteJid } },
+            include: { user: true }
+        });
+        if (allMembers.length < 2) {
+          await whatsapp.sendMessage(msg.remoteJid, "Pô, precisa de pelo menos 2 pessoas no grupo pra eu formar um casal!");
+          return true;
+        }
+        const shuffledMembers = allMembers.sort(() => 0.5 - Math.random());
+        const u1 = shuffledMembers[0];
+        const u2 = shuffledMembers[1];
+        
+        const name1 = u1.user?.pushName || u1.userJid.split('@')[0];
+        const name2 = u2.user?.pushName || u2.userJid.split('@')[0];
+        
+        const casalText = botTexts.fun.casal
+          .replace('#USER1', name1)
+          .replace('#USER2', name2);
+        
+        await whatsapp.sendMessage(msg.remoteJid, casalText, [u1.userJid, u2.userJid]);
+      } catch (e) {
+        console.error('Error in casal:', e);
       }
-      const shuffledMembers = allMembers.sort(() => 0.5 - Math.random());
-      const user1 = shuffledMembers[0].userJid;
-      const user2 = shuffledMembers[1].userJid;
-      const casalText = botTexts.fun.casal
-        .replace('#USER1', user1.split('@')[0])
-        .replace('#USER2', user2.split('@')[0]);
-      await whatsapp.sendMessage(msg.remoteJid, casalText, [user1, user2]);
       return true;
 
     default:
