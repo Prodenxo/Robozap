@@ -17,7 +17,7 @@ export const getAIResponse = async (prompt: string, personality: string): Promis
   const apiKey = cleanKey(process.env.OPENAI_API_KEY);
   
   if (!apiKey || apiKey.length < 5) {
-    console.error('[ROBOZAP ERROR]: Groq API Key is missing or too short! Value:', apiKey);
+    console.error('[ROBOZAP ERROR]: Groq API Key is missing! Value:', apiKey);
     return fallbackReplies[0];
   }
 
@@ -27,30 +27,22 @@ export const getAIResponse = async (prompt: string, personality: string): Promis
   });
 
   try {
-    console.log('[AI SERVICE]: Sending request to Groq Cloud...');
-    
     const response = await openai.chat.completions.create({
-      model: "llama3-8b-8192",
+      model: "llama-3.3-70b-versatile", // UPDATED TO SUPPORTED MODEL
       messages: [
         { role: "system", content: personality },
         { role: "user", content: prompt }
       ],
-      max_tokens: 300,
+      max_tokens: 500,
       temperature: 0.8,
     });
 
     const reply = response.choices[0]?.message?.content;
     if (!reply) throw new Error('Groq returned empty reply content');
     
-    console.log('[AI SERVICE]: Success! Response received.');
     return reply;
   } catch (error: any) {
-    // THIS LOG IS OUR GOLD! Watch it in Easypanel Logs.
     console.error('[GROQ FATAL ERROR LOG]:', error.message || error);
-    
-    if (error.status === 401) console.error('DETECTED: Key is INVALID.');
-    if (error.status === 429) console.error('DETECTED: Rate limit reached.');
-    
     return fallbackReplies[Math.floor(Math.random() * fallbackReplies.length)];
   }
 };
