@@ -2,6 +2,7 @@ import ytSearch from 'yt-search';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
+import path from 'path';
 
 const execAsync = promisify(exec);
 
@@ -13,11 +14,21 @@ export class MediaService {
 
   async downloadMusic(url: string, outputPath: string): Promise<void> {
     try {
-      console.log(`[YT-DLP] Tentando disfarce de iOS para: ${url}`);
+      console.log(`[YT-DLP] Download com Cookies se disponível: ${url}`);
       
-      // O modo iOS é atualmente o mais forte para burlar o "Sign in to confirm you're not a bot"
+      const cookiesPath = '/app/cookies.txt'; // Onde vamos colocar seus cookies
+      let cookieFlag = '';
+      
+      if (fs.existsSync(cookiesPath)) {
+          console.log('[YT-DLP] Cookies encontrados! Usando credenciais para download.');
+          cookieFlag = `--cookies "${cookiesPath}"`;
+      } else {
+          console.warn('[YT-DLP] Aviso: cookies.txt não encontrado. O download pode falhar em servidores cloud.');
+      }
+
+      // O comando definitivo com suporte a cookies
       const command = `yt-dlp \
-        --extractor-args "youtube:player_client=ios" \
+        ${cookieFlag} \
         -f "ba" -x --audio-format mp3 --audio-quality 0 \
         --no-playlist \
         --no-check-certificates \
@@ -32,7 +43,7 @@ export class MediaService {
       console.log(`[YT-DLP] Sucesso no download!`);
     } catch (error: any) {
       console.error('[YT-DLP ERROR]:', error.message || error);
-      throw new Error('O YouTube bloqueou o download por detectar o servidor. Tente outro link.');
+      throw new Error('YouTube bloqueou. Você precisa subir o arquivo cookies.txt para o servidor.');
     }
   }
 }
