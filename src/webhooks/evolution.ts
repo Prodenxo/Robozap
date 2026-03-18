@@ -6,8 +6,9 @@ export const handleWebhook = async (data: any) => {
   const message = data.data;
   if (!message || message.key.fromMe) return;
 
-  // Extract text content from various message types
   const msgContent = message.message || {};
+  
+  // Get text from anywhere
   const textContent = 
     msgContent.conversation || 
     msgContent.extendedTextMessage?.text || 
@@ -20,13 +21,17 @@ export const handleWebhook = async (data: any) => {
   const remoteJid = message.key.remoteJid;
   const participant = message.key.participant || remoteJid;
 
-  // ROBUST CONTEXT EXTRACTION
-  const contextInfo = 
+  // EVOLUTION V2 Target extraction (Super deep search)
+  // Quoted participant can be in several places depending on message type
+  const context = 
     msgContent.extendedTextMessage?.contextInfo || 
     msgContent.imageMessage?.contextInfo || 
-    msgContent.videoMessage?.contextInfo ||
-    msgContent.buttonsResponseMessage?.contextInfo ||
-    message.messageContextInfo;
+    msgContent.videoMessage?.contextInfo || 
+    msgContent.stickerMessage?.contextInfo ||
+    message.messageContextInfo; // Fallback for some v2 structures
+
+  const quotedParticipant = context?.participant || context?.quotedMessage?.key?.participant;
+  const mentionedJid = context?.mentionedJid || [];
 
   await processMessage({
     id: message.key.id,
@@ -34,9 +39,9 @@ export const handleWebhook = async (data: any) => {
     participant,
     pushName: message.pushName || 'Usuário',
     text: textContent,
-    quoted: contextInfo?.quotedMessage,
-    quotedParticipant: contextInfo?.participant, // THE REAL TARGET FOR REPLIES
-    mentionedJid: contextInfo?.mentionedJid || [], // TARGETS FOR MENTIONS
+    quoted: context?.quotedMessage,
+    quotedParticipant, // THIS IS THE KEY
+    mentionedJid,      // THIS IS THE KEY
     messageType: Object.keys(msgContent)[0],
     raw: message
   });
