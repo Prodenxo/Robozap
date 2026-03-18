@@ -13,28 +13,26 @@ export class MediaService {
 
   async downloadMusic(url: string, outputPath: string): Promise<void> {
     try {
-      console.log(`[YT-DLP] Tentando burlar o YouTube para: ${url}`);
+      console.log(`[YT-DLP] Tentando download com bypass: ${url}`);
       
-      // Comando ninja: --client-name android tenta fingir que é o app do celular
-      // Adicionamos --no-check-certificates e um User-Agent comum
+      // O comando correto para fingir ser Android no yt-dlp é via --extractor-args
       const command = `yt-dlp \
-        --client-name android \
+        --extractor-args "youtube:player_client=android,web" \
         -f "ba" -x --audio-format mp3 --audio-quality 0 \
         --no-playlist \
         --no-check-certificates \
-        --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
         "${url}" -o "${outputPath}"`;
       
       await execAsync(command);
       
       if (!fs.existsSync(outputPath)) {
-          throw new Error('O arquivo não foi gerado. O YouTube provavelmente bloqueou.');
+          throw new Error('Arquivo não encontrado após o download.');
       }
 
-      console.log(`[YT-DLP] Download finalizado!`);
+      console.log(`[YT-DLP] Sucesso!`);
     } catch (error: any) {
-      console.error('[YT-DLP FATAL ERROR]:', error.message || error);
-      throw new Error('O YouTube bloqueou o download por ser um servidor. Tente novamente ou use outro link.');
+      console.error('[YT-DLP ERROR]:', error.message || error);
+      throw new Error('O YouTube bloqueou o download. Tente outro link ou tente mais tarde.');
     }
   }
 }
