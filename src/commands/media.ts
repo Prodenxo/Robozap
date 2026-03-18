@@ -19,6 +19,8 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
         await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figStart);
         
         try {
+          // Sending back the base64 or the same image to evolution to convert to sticker
+          // Evolution v2.x supports passing the message content to sendSticker
           await whatsapp.sendSticker(msg.remoteJid, msg.raw); 
         } catch (error) {
           console.error('Sticker Error:', error);
@@ -36,7 +38,6 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
         return true;
       }
       const query = args.join(' ');
-      await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaSearch.replace('$query', query));
       
       try {
         let url = query;
@@ -52,7 +53,6 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
         const tempPath = path.join(__dirname, `../../temp_${Date.now()}.mp4`);
         await media.downloadMusic(url, tempPath);
         
-        await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaSending);
         await whatsapp.sendMedia(msg.remoteJid, tempPath, 'audio');
         
         if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
