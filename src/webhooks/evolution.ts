@@ -19,6 +19,7 @@ export const handleWebhook = async (data: any) => {
 
   const remoteJid = message.key.remoteJid;
   const participant = message.key.participant || remoteJid;
+  const senderName = message.pushName || 'Usuário';
 
   // --- SUPER SCANNER DE CONTEXTO (Evolution v2) ---
   const context = 
@@ -26,27 +27,25 @@ export const handleWebhook = async (data: any) => {
     msgContent.imageMessage?.contextInfo || 
     msgContent.videoMessage?.contextInfo || 
     msgContent.stickerMessage?.contextInfo ||
-    msgContent.documentWithCaptionMessage?.message?.documentMessage?.contextInfo ||
     message.messageContextInfo;
 
-  // Busca o alvo em 4 lugares diferentes (Padrão v2, Padrão v1, Fallback, Mentions)
+  // Busca o alvo em vários lugares diferentes para evitar 'undefined'
   const quotedParticipant = 
     context?.participant || 
     context?.quotedMessage?.key?.participant || 
-    context?.remoteJid || // Caso de resposta em PV
-    message.key.participant; // Último caso
+    (remoteJid.endsWith('@s.whatsapp.net') ? remoteJid : undefined);
 
   const mentionedJid = context?.mentionedJid || [];
 
-  // MANDA PRO LOG O QUE ELE ACHOU
-  console.log(`[WEBHOOK DEBUG] From: ${pushName} | Text: ${textContent}`);
-  console.log(`[TARGET DEBUG] Quoted: ${quotedParticipant} | Mentions: ${mentionedJid.length}`);
+  // LOG DE DEPURAÇÃO CORRIGIDO
+  console.log(`[WEBHOOK] Mensagem de: ${senderName} (${remoteJid})`);
+  console.log(`[TARGET IDENTIFIER] Quoted: ${quotedParticipant} | Mentions: ${mentionedJid.join(', ')}`);
 
   await processMessage({
     id: message.key.id,
     remoteJid,
     participant,
-    pushName: message.pushName || 'Usuário',
+    pushName: senderName,
     text: textContent,
     quoted: context?.quotedMessage,
     quotedParticipant: quotedParticipant, 
