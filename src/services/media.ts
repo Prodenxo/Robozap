@@ -37,18 +37,18 @@ export class MediaService {
   async downloadMusic(url: string, outputPath: string): Promise<void> {
     try {
       const cookiesPath = path.join(process.cwd(), 'cookies.txt');
-      
-      // Auto-create cookies file if it doesn't exist or is different
       if (!fs.existsSync(cookiesPath)) {
           fs.writeFileSync(cookiesPath, COOKIES_CONTENT);
-          console.log('[MEDIA SERVICE] Cookies file created successfully.');
       }
 
-      console.log(`[YT-DLP] Tentando download com Cookies de Usuário: ${url}`);
+      console.log(`[YT-DLP] Bypass com Deno e Cookies: ${url}`);
       
+      // --js-runtimes deno forces yt-dlp to use the resolver we just installed
+      // -f "bestaudio/best" is more flexible than searching for a specific audio format
       const command = `yt-dlp \
+        --js-runtimes deno \
         --cookies "${cookiesPath}" \
-        -f "ba" -x --audio-format mp3 --audio-quality 0 \
+        -f "bestaudio/best" -x --audio-format mp3 --audio-quality 0 \
         --no-playlist \
         --no-check-certificates \
         "${url}" -o "${outputPath}"`;
@@ -56,13 +56,13 @@ export class MediaService {
       await execAsync(command);
       
       if (!fs.existsSync(outputPath)) {
-          throw new Error('Arquivo não gerado mesmo com cookies.');
+          throw new Error('O arquivo não foi gerado. Bloqueio de assinatura persistente.');
       }
 
-      console.log(`[YT-DLP] Sucesso Total!`);
+      console.log(`[YT-DLP] Sucesso!`);
     } catch (error: any) {
       console.error('[YT-DLP ERROR]:', error.message || error);
-      throw new Error('O YouTube bloqueou mesmo com cookies. Pode ser que eles tenham expirado.');
+      throw new Error('O YouTube bloqueou a assinatura do vídeo. Tentando contornar...');
     }
   }
 }
