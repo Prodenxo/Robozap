@@ -14,15 +14,29 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
     case 'sticker':
       const msgContent = msg.raw?.message || {};
       const quotedContent = msg.raw?.message?.extendedTextMessage?.contextInfo?.quotedMessage || {};
+
+      // Helper to find media in nested structures (viewOnce, ephemeral, etc)
+      const findMedia = (m: any) => {
+          if (!m) return null;
+          return m.imageMessage || m.stickerMessage || m.videoMessage || 
+                 m.viewOnceMessage?.message?.imageMessage || 
+                 m.viewOnceMessageV2?.message?.imageMessage ||
+                 m.ephemeralMessage?.message?.imageMessage;
+      };
+
+      const mediaContent = findMedia(msgContent);
+      const quotedMediaContent = findMedia(quotedContent);
       
-      const hasImage = msgContent.imageMessage || quotedContent.imageMessage;
-      const hasSticker = msgContent.stickerMessage || quotedContent.stickerMessage;
+      const hasImage = !!(mediaContent?.imageMessage || quotedMediaContent?.imageMessage || (!mediaContent?.stickerMessage && (mediaContent || quotedMediaContent)));
+      const hasSticker = !!(mediaContent?.stickerMessage || quotedMediaContent?.stickerMessage);
       
-      if (hasImage || hasSticker) {
+      if (mediaContent || quotedMediaContent) {
         await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figStart);
         try {
           // Identify which ID to use
           const targetMessageId = (msgContent.imageMessage || msgContent.stickerMessage) ? msg.id : msg.quotedId;
+          
+          console.log(`[MEDIA] .fig command. Target ID: ${targetMessageId}, IsQuoted: ${!!msg.quotedId}`);
           
           if (!targetMessageId) throw new Error('No message ID found for media');
 
@@ -33,7 +47,7 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
             throw new Error('Failed to fetch base64 from message');
           }
         } catch (error) {
-          console.error('Sticker Error:', error);
+          console.error('[MEDIA] Sticker Error:', error);
           await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figErrorGeneric);
         }
       } else {

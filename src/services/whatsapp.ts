@@ -71,14 +71,16 @@ export class WhatsAppService {
 
   async getBase64FromMessage(messageId: string) {
     try {
+      console.log(`[WHATSAPP] Fetching base64 for ID: ${messageId}`);
       const response = await axios.post(`${this.baseUrl}/chat/getBase64FromMediaMessage/${this.instance}`, {
         messageId: messageId
       }, { headers: this.headers });
       
+      console.log(`[WHATSAPP] API Response Status: ${response.status}`);
       // Response usually has { base64: '...' }
       return response.data?.base64 || response.data;
     } catch (error: any) {
-      console.error('Error fetching base64:', error.response?.data || error.message);
+      console.error('[WHATSAPP] Error fetching base64:', error.response?.data || error.message);
       return null;
     }
   }
