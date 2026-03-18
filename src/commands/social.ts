@@ -15,7 +15,7 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         return true;
       }
       const ig = args[0].replace('@', '');
-      await prisma.groupParticipant.updateMany({
+      await (prisma as any).groupParticipant.updateMany({
         where: { userJid, group: { jid: msg.remoteJid } },
         data: { instagram: ig }
       });
@@ -28,7 +28,7 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         return true;
       }
       const local = args.join(' ');
-      await prisma.groupParticipant.updateMany({
+      await (prisma as any).groupParticipant.updateMany({
         where: { userJid, group: { jid: msg.remoteJid } },
         data: { location: local }
       });
@@ -36,10 +36,24 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
       return true;
 
     case 'radio':
+    case 'playlist':
       await whatsapp.sendMessage(msg.remoteJid, botTexts.social.radio);
       return true;
 
+    case 'vou':
+    case 'role.vou':
+      // Simplified presence logic
+      await whatsapp.sendMessage(msg.remoteJid, botTexts.social.presenca + " (Em breve: integração com eventos)");
+      return true;
+
+    case 'vounao':
+    case 'nvou':
+    case 'role.nvou':
+      await whatsapp.sendMessage(msg.remoteJid, botTexts.social.desistencia);
+      return true;
+
     case 'roles':
+    case 'resenha':
       await whatsapp.sendMessage(msg.remoteJid, botTexts.social.roles);
       return true;
 

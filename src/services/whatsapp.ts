@@ -63,12 +63,27 @@ export class WhatsAppService {
 
   async sendSticker(remoteJid: string, stickerData: any) {
     try {
+      // If it's a URL or base64 from a previous step, send as is.
+      // Evolution API accepts URL or base64.
+      const sticker = typeof stickerData === 'string' ? stickerData : (stickerData.message?.imageMessage?.url || stickerData);
+
       await axios.post(`${this.baseUrl}/message/sendSticker/${this.instance}`, {
         number: remoteJid,
-        sticker: stickerData.message?.imageMessage?.url || stickerData
+        sticker: sticker
       }, { headers: this.headers });
     } catch (error: any) {
       console.error('Error sending sticker:', error.response?.data || error.message);
+    }
+  }
+
+  async deleteMessage(remoteJid: string, messageId: string) {
+    try {
+      await axios.post(`${this.baseUrl}/message/deleteMessage/${this.instance}`, {
+        number: remoteJid,
+        messageId: messageId
+      }, { headers: this.headers });
+    } catch (error: any) {
+      console.error('Error deleting message:', error.response?.data || error.message);
     }
   }
 

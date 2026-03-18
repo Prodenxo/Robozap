@@ -20,7 +20,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
 
   // FUNÇÃO DE MARCAÇÃO BONITA (Nome em vez de ID)
   const getMentionText = async (jid: string) => {
-      const user = await prisma.user.findUnique({ where: { jid } });
+      const user = await (prisma as any).user.findUnique({ where: { jid } });
       const identifier = user?.pushName || jid.split('@')[0];
       return `@${identifier}`;
   };
@@ -46,8 +46,34 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       await whatsapp.sendMessage(msg.remoteJid, `📉 Perdeu o cargo, ${mentionTextDemote}! Volta pra base.`, [resolvedDemote]);
       return true;
 
+    case 'apagar':
+    case 'limpar':
+      const messageId = msg.quoted?.key?.id;
+      if (!messageId) {
+        await whatsapp.sendMessage(msg.remoteJid, "Pô, responde a mensagem que tu quer apagar!");
+        return true;
+      }
+      await whatsapp.deleteMessage(msg.remoteJid, messageId);
+      return true;
+
+    case 'marcar':
+      // Tag All logic - simplistic version fetching from GroupParticipants
+      const participants: any[] = await (prisma as any).groupParticipant.findMany({ 
+        where: { group: { jid: msg.remoteJid } },
+        select: { userJid: true }
+      });
+      const mentionList = participants.map((u: any) => u.userJid);
+      await whatsapp.sendMessage(msg.remoteJid, `📢 *FILHOTE CHAMANDO A TROPA!* 📢\n\n${args.join(' ') || 'Bora reagir, bando de desocupado!'}`, mentionList);
+      return true;
+
     case 'adv':
+    case 'alertar':
+    case 'avisar':
       const mentionTextAdv = await getMentionText(targetJid);
+      await (prisma as any).groupParticipant.updateMany({
+        where: { userJid: targetJid, group: { jid: msg.remoteJid } },
+        data: { warningsCount: { increment: 1 } }
+      });
       await whatsapp.sendMessage(msg.remoteJid, `⚠️ Atenção ${mentionTextAdv}, tu tomou uma advertência! Próxima é vala.`, [targetJid]);
       return true;
 

@@ -17,9 +17,8 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
       
       if (isImage || isQuotedImage) {
         await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figStart);
-        
         try {
-          await whatsapp.sendSticker(msg.remoteJid, msg.raw); 
+          await whatsapp.sendSticker(msg.remoteJid, msg.raw);
         } catch (error) {
           console.error('Sticker Error:', error);
           await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figErrorGeneric);

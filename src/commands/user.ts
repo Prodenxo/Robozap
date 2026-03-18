@@ -16,18 +16,20 @@ export const handleUserCommands = async (command: string, args: string[], msg: a
 
     case 'meusdados':
     case 'dados':
+    case 'perfil':
       try {
-        const statsCount = await prisma.messageLog.count({ where: { userJid } });
-        const participant = await prisma.groupParticipant.findFirst({ 
+        const statsCount = await (prisma as any).messageLog.count({ where: { userJid } });
+        const participant = await (prisma as any).groupParticipant.findFirst({ 
           where: { userJid, group: { jid: msg.remoteJid } } 
         });
         
         const response = `${botTexts.user.meusdadosHeader}\n\n` +
           `👤 *Nome:* ${msg.pushName}\n` +
           `💬 *Mensagens:* ${statsCount}\n` +
+          `📝 *Bio:* ${participant?.bioText || 'Sem bio'}\n` +
           `⚠️ *Advertências:* ${participant?.warningsCount || 0}\n` +
           `🎂 *Niver:* ${participant?.birthday || 'Não cadastrado'}\n` +
-          `📸 *IG:* ${participant?.instagram || 'N/A'}\n` +
+          `📸 *IG:* ${participant?.instagram ? '@' + participant.instagram : 'N/A'}\n` +
           `📍 *Local:* ${participant?.location || 'N/A'}`;
         
         await whatsapp.sendMessage(msg.remoteJid, response);
@@ -41,7 +43,7 @@ export const handleUserCommands = async (command: string, args: string[], msg: a
         await whatsapp.sendMessage(msg.remoteJid, "Solta tua bio aí depois do .bio");
         return true;
       }
-      await prisma.groupParticipant.updateMany({ 
+      await (prisma as any).groupParticipant.updateMany({ 
         where: { userJid, group: { jid: msg.remoteJid } }, 
         data: { bioText: args.join(' ') } 
       });
@@ -50,7 +52,7 @@ export const handleUserCommands = async (command: string, args: string[], msg: a
 
     case 'niver':
       if (args[0] === 'excluir' || (command as string) === 'niver.excluir') {
-        await prisma.groupParticipant.updateMany({ 
+        await (prisma as any).groupParticipant.updateMany({ 
           where: { userJid, group: { jid: msg.remoteJid } }, 
           data: { birthday: null } 
         });
@@ -60,7 +62,7 @@ export const handleUserCommands = async (command: string, args: string[], msg: a
         if (!/^\d{2}\/\d{2}$/.test(date)) {
           await whatsapp.sendMessage(msg.remoteJid, "Pô, manda DD/MM. Ex: .niver 15/08");
         } else {
-          await prisma.groupParticipant.updateMany({ 
+          await (prisma as any).groupParticipant.updateMany({ 
             where: { userJid, group: { jid: msg.remoteJid } }, 
             data: { birthday: date } 
           });
@@ -72,15 +74,15 @@ export const handleUserCommands = async (command: string, args: string[], msg: a
     case 'ig':
       if (args.length === 0) {
         // List all IGs in this group
-        const participants = await prisma.groupParticipant.findMany({ 
+        const participants: any[] = await (prisma as any).groupParticipant.findMany({ 
           where: { group: { jid: msg.remoteJid }, instagram: { not: null } }, 
           select: { user: { select: { pushName: true } }, instagram: true } 
         });
-        const list = participants.map(p => `📸 ${p.user.pushName || 'Desconhecido'}: @${p.instagram}`).join('\n');
+        const list = participants.map(p => `📸 ${p.user?.pushName || 'Desconhecido'}: @${p.instagram}`).join('\n');
         await whatsapp.sendMessage(msg.remoteJid, `📸 *Lista do Insta:*\n\n${list || 'Ninguém cadastrou nada ainda.'}`);
       } else {
         const ig = args[0].replace('@', '');
-        await prisma.groupParticipant.updateMany({ 
+        await (prisma as any).groupParticipant.updateMany({ 
           where: { userJid, group: { jid: msg.remoteJid } }, 
           data: { instagram: ig } 
         });
@@ -90,15 +92,15 @@ export const handleUserCommands = async (command: string, args: string[], msg: a
 
     case 'local':
       if (args.length === 0) {
-        const participants = await prisma.groupParticipant.findMany({ 
+        const participants: any[] = await (prisma as any).groupParticipant.findMany({ 
           where: { group: { jid: msg.remoteJid }, location: { not: null } }, 
           select: { user: { select: { pushName: true } }, location: true } 
         });
-        const list = participants.map(p => `📍 ${p.user.pushName || 'Desconhecido'}: ${p.location}`).join('\n');
+        const list = participants.map(p => `📍 ${p.user?.pushName || 'Desconhecido'}: ${p.location}`).join('\n');
         await whatsapp.sendMessage(msg.remoteJid, `📍 *Onde a rapaziada mora:*\n\n${list || 'Ninguém avisou.'}`);
       } else {
         const local = args.join(' ');
-        await prisma.groupParticipant.updateMany({ 
+        await (prisma as any).groupParticipant.updateMany({ 
           where: { userJid, group: { jid: msg.remoteJid } }, 
           data: { location: local } 
         });
@@ -108,7 +110,7 @@ export const handleUserCommands = async (command: string, args: string[], msg: a
 
     case 'ignoreme':
       const mode = args[0] === 'on';
-      await prisma.groupParticipant.updateMany({ 
+      await (prisma as any).groupParticipant.updateMany({ 
         where: { userJid, group: { jid: msg.remoteJid } }, 
         data: { ignoreMentions: mode } 
       });

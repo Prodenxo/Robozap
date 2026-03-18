@@ -23,6 +23,7 @@ export const COMMAND_MAP: Record<string, Function> = {
   // PESSOAL
   'meusdados': handleUserCommands,
   'dados': handleUserCommands,
+  'perfil': handleUserCommands,
   'bio': handleUserCommands,
   'niver': handleUserCommands,
   'niver.excluir': handleUserCommands,
@@ -32,15 +33,22 @@ export const COMMAND_MAP: Record<string, Function> = {
   'ig.excluir': handleUserCommands,
   'local': handleUserCommands,
   'local.excluir': handleUserCommands,
-  'radio': handleUserCommands,
+  'radio': handleSocialCommands,
   'radio.excluir': handleUserCommands,
+  'playlist': handleSocialCommands,
   'ignoreme': handleUserCommands,
   'meignore': handleUserCommands,
 
   // SOCIAL
   'roles': handleSocialCommands,
   'role.vou': handleSocialCommands,
+  'vou': handleSocialCommands,
   'role.nvou': handleSocialCommands,
+  'vounao': handleSocialCommands,
+  'nvou': handleSocialCommands,
+  'role.sair': handleSocialCommands,
+  'iglist': handleUserCommands,
+  'locallist': handleUserCommands,
   'resenha': handleSocialCommands,
 
   // ALIASES DE NICHO / LISTA (TODOS OS 10 SOLICITADOS)
@@ -70,6 +78,7 @@ export const COMMAND_MAP: Record<string, Function> = {
   // ENTRETENIMENTO
   'chance': handleFunCommands,
   'sortear': handleFunCommands,
+  'sorteio': handleFunCommands,
   'dado': handleFunCommands,
   'moeda': handleFunCommands,
   'd4': handleFunCommands,
@@ -104,8 +113,10 @@ export const COMMAND_MAP: Record<string, Function> = {
   'promover': handleAdminCommands,
   'rebaixar': handleAdminCommands,
   'apagar': handleAdminCommands,
+  'limpar': handleAdminCommands,
   'marcar': handleAdminCommands,
   'alertar': handleAdminCommands,
+  'avisar': handleAdminCommands,
 
   // TESTES
   'teste': handleGeneralCommands,

@@ -14,31 +14,36 @@ export const handleFunCommands = async (command: string, args: string[], msg: an
       }
       const percentage = Math.floor(Math.random() * 101);
       const text = args.join(' ');
-      const response = `${botTexts.fun.chanceHeader}"${text}":\n🎯 *${percentage}%*!`;
-      await whatsapp.sendMessage(msg.remoteJid, response);
+      
+      // Optionally pick a random participant to "accuse" or "target"
+      const allParts = await (prisma as any).groupParticipant.findMany({ where: { group: { jid: msg.remoteJid } } });
+      const randomUser = allParts[Math.floor(Math.random() * allParts.length)];
+      const mention = randomUser ? `@${randomUser.userJid.split('@')[0]}` : 'alguém';
+
+      const response = `${botTexts.fun.chanceHeader}"${text}":\n🎯 *${percentage}%*! (Pelo que eu vi, o culpado é o ${mention})`;
+      await whatsapp.sendMessage(msg.remoteJid, response, randomUser ? [randomUser.userJid] : []);
       return true;
 
     case 'sortear':
+    case 'sorteio':
       try {
-        // Querying actual users from database who have messages in this group
-        const groupUsers = await prisma.messageLog.findMany({
+        const groupUsers = await (prisma as any).groupParticipant.findMany({
           where: { group: { jid: msg.remoteJid } },
-          distinct: ['userJid'],
           select: { userJid: true }
         });
 
         if (groupUsers.length === 0) {
-          // If no stats yet, let's just use the current sender as a fallback message
-          await whatsapp.sendMessage(msg.remoteJid, "Ainda não tenho gente suficiente salva no meu banco pra sortear! Fala tu primeiro.");
+          await whatsapp.sendMessage(msg.remoteJid, "Ainda não tenho gente cadastrada aqui pra sortear!");
           return true;
         }
 
         const quantity = Math.min(parseInt(args[0]) || 1, groupUsers.length);
         const shuffled = [...groupUsers].sort(() => 0.5 - Math.random());
         const chosen = shuffled.slice(0, quantity);
+        const mentionList = chosen.map((u: any) => u.userJid);
         
-        const winnersText = chosen.map(u => `@${u.userJid.split('@')[0]}`).join(', ');
-        await whatsapp.sendMessage(msg.remoteJid, `🎉 *Os sorteados da vez são*:\n\n${winnersText}`);
+        const winnersText = chosen.map((u: any) => `@${u.userJid.split('@')[0]}`).join(', ');
+        await whatsapp.sendMessage(msg.remoteJid, `🎉 *OS SORTEADOS DO FILHOTE SÃO*:\n\n${winnersText}`, mentionList);
       } catch (error) {
         console.error('Sorteio Error:', error);
       }
