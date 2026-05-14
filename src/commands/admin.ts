@@ -17,10 +17,10 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       }
   }
 
-  // FUNÇÃO DE MARCAÇÃO BONITA (Nome em vez de ID)
+  // FUNÇÃO DE MARCAÇÃO LIMPA (Usa o número para o WhatsApp reconhecer como menção)
   const getMentionText = async (jid: string) => {
-      const name = await whatsapp.resolveName(jid, msg.remoteJid);
-      return `@${name}`;
+      const number = jid.split('@')[0];
+      return `@${number}`;
   };
 
   switch (command) {
