@@ -88,17 +88,18 @@ async function handleGroupUpdate(data: any) {
   const action = data.action?.toLowerCase();
   if (action !== 'add') return;
 
-  const groupJid = data.remoteJid || data.jid;
-  const participants = data.participants || []; // Array de JIDs
+  const groupJid = data.remoteJid || data.jid || data.id;
+  const participants = data.participants || []; // Array de JIDs ou Objetos
 
   if (!groupJid) {
     console.error('[BOAS-VINDAS] Erro: JID do grupo não encontrado no payload', data);
     return;
   }
 
-  for (let jid of participants) {
-    // Se o jid vier como objeto { id: "..." }, pegamos apenas o ID
-    if (typeof jid === 'object' && jid.id) jid = jid.id;
+  for (let p of participants) {
+    // Se o participante for um objeto (como no seu log), pegamos o phoneNumber ou o id
+    let jid = typeof p === 'object' ? (p.phoneNumber || p.id) : p;
+    
     if (typeof jid !== 'string') continue;
 
     const number = jid.split('@')[0];
