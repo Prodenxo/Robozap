@@ -91,7 +91,16 @@ async function handleGroupUpdate(data: any) {
   const groupJid = data.remoteJid || data.jid;
   const participants = data.participants || []; // Array de JIDs
 
-  for (const jid of participants) {
+  if (!groupJid) {
+    console.error('[BOAS-VINDAS] Erro: JID do grupo não encontrado no payload', data);
+    return;
+  }
+
+  for (let jid of participants) {
+    // Se o jid vier como objeto { id: "..." }, pegamos apenas o ID
+    if (typeof jid === 'object' && jid.id) jid = jid.id;
+    if (typeof jid !== 'string') continue;
+
     const number = jid.split('@')[0];
     
     const welcomeMsg = `👋 Bem-vindo ao Rolezeiros RJ 🍻 @${number}
@@ -110,7 +119,6 @@ Pra todo mundo se conhecer melhor e deixar o grupo mais organizado, mandem a apr
 
     console.log(`[BOAS-VINDAS] Enviando para ${number} no grupo ${groupJid}`);
     
-    // Enviamos a mensagem mencionando o JID real, mas no texto usamos apenas o número limpo
     await whatsapp.sendMessage(groupJid, welcomeMsg, [jid]);
   }
 }
