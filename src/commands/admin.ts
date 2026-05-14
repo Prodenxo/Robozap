@@ -72,36 +72,39 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
     case 'avisar':
       const mentionTextAdv = await getMentionText(targetJid);
       
-      // 1. Garantimos que o registro existe e incrementamos
+      // 1. Incrementamos as ADVs (tentamos pelo JID resolvido ou pelo original)
       await (prisma as any).groupParticipant.updateMany({
-        where: { userJid: targetJid, group: { jid: msg.remoteJid } },
+        where: { 
+            OR: [{ userJid: targetJid }, { userJid: rawTargetJid }],
+            group: { jid: msg.remoteJid } 
+        },
         data: { warningsCount: { increment: 1 } }
       });
       
       // 2. Buscamos o valor atualizado
       const part = await (prisma as any).groupParticipant.findFirst({
-          where: { userJid: targetJid, group: { jid: msg.remoteJid } },
+          where: { 
+              OR: [{ userJid: targetJid }, { userJid: rawTargetJid }],
+              group: { jid: msg.remoteJid } 
+          },
           select: { warningsCount: true }
       });
 
       const advCount = part?.warningsCount || 1;
+      const mentionList = [targetJid, rawTargetJid].filter(Boolean) as string[];
 
       if (advCount >= 2) {
-          // REMOÇÃO AUTOMÁTICA
-          await whatsapp.sendMessage(msg.remoteJid, `⚠️ ${mentionTextAdv} atingiu o limite de *2 advertências* e será removido. Vala! 🧹`, [targetJid]);
+          await whatsapp.sendMessage(msg.remoteJid, `⚠️ ${mentionTextAdv} atingiu o limite de *2 advertências* e será removido. Vala! 🧹`, mentionList);
           
-          // Pequeno delay para a mensagem ser lida antes do ban
           setTimeout(async () => {
-              await whatsapp.groupUpdateParticipant(msg.remoteJid, 'remove', [targetJid]);
-              // Opcional: Resetar as advs se ele voltar um dia
+              await whatsapp.groupUpdateParticipant(msg.remoteJid, 'remove', [rawTargetJid || targetJid]);
               await (prisma as any).groupParticipant.updateMany({
-                  where: { userJid: targetJid, group: { jid: msg.remoteJid } },
+                  where: { OR: [{ userJid: targetJid }, { userJid: rawTargetJid }], group: { jid: msg.remoteJid } },
                   data: { warningsCount: 0 }
               });
           }, 2000);
       } else {
-          // APENAS AVISO
-          await whatsapp.sendMessage(msg.remoteJid, `⚠️ Atenção ${mentionTextAdv}, você tomou uma advertência! Agora você tem *${advCount}/2*. Se tomar mais uma, é ban!`, [targetJid]);
+          await whatsapp.sendMessage(msg.remoteJid, `⚠️ Atenção ${mentionTextAdv}, você tomou uma advertência! Agora você tem *${advCount}/2*. Se tomar mais uma, é ban!`, mentionList);
       }
       return true;
 
