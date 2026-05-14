@@ -29,12 +29,17 @@ export const handleWebhook = async (data: any) => {
     return handleMessageUpsert(message);
   }
 
-  // 2. Lógica de Entrada/Saída de Grupos
-  if (event === 'group-participants.update') {
-    return handleGroupUpdate(data.data);
+  // 2. Lógica de Entrada/Saída de Grupos (Suporte a group-participants.update ou group_participants_update)
+  if (event === 'group-participants.update' || event === 'group_participants_update') {
+    let groupData = data.data;
+    if (Array.isArray(groupData)) {
+      groupData = groupData[0];
+    }
+    console.log(`[ROBOZAP] Processando alteração de participantes: ${groupData?.action}`);
+    return handleGroupUpdate(groupData);
   }
 
-  if (data.event) console.log(`[ROBOZAP] Ignored event: ${data.event}`);
+  if (data.event) console.log(`[ROBOZAP] Evento ignorado ou desconhecido: ${data.event}`);
 };
 
 async function handleMessageUpsert(message: any) {
@@ -79,8 +84,9 @@ async function handleMessageUpsert(message: any) {
 }
 
 async function handleGroupUpdate(data: any) {
-  // Apenas quando alguém entra (action: 'add')
-  if (data.action !== 'add') return;
+  // Apenas quando alguém entra (action: 'add' ou 'ADD')
+  const action = data.action?.toLowerCase();
+  if (action !== 'add') return;
 
   const groupJid = data.remoteJid || data.jid;
   const participants = data.participants || []; // Array de JIDs
