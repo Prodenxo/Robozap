@@ -12,10 +12,20 @@ const findField = (obj: any, fieldName: string): any => {
 };
 
 export const handleWebhook = async (data: any) => {
-  if (data.event !== 'messages.upsert') return;
+  const event = data.event?.toLowerCase();
+  
+  if (event !== 'messages.upsert') {
+    if (data.event) console.log(`[ROBOZAP] Ignored event: ${data.event}`);
+    return;
+  }
 
-  const message = data.data;
-  if (!message || message.key.fromMe) return;
+  // Handle Evolution API v2 (array) or v1 (object)
+  let message = data.data;
+  if (Array.isArray(message)) {
+    message = message[0];
+  }
+
+  if (!message || !message.key || message.key.fromMe) return;
 
   const msgContent = message.message || {};
   const textContent = 

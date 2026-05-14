@@ -46,7 +46,7 @@ export const processMessage = async (msg: MessageData) => {
   
   if (!isSubscriber && !isEssential) {
       // Injetamos a lógica do emoji expirado conforme solicitado (🫥)
-      console.log(`[SUBSCRIPTION] Group ${msg.remoteJid} is EXPIRED. Blocking command ${command}.`);
+      console.log(`[SUBSCRIPTION] ❌ Comando BLOQUEADO. Grupo ${msg.remoteJid} está EXPIRADO.`);
       return; // O bot responde via handler se implementado lá, ou aqui injetamos o aviso.
   }
 
