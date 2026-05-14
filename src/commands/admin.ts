@@ -70,17 +70,38 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
     case 'alertar':
     case 'avisar':
       const mentionTextAdv = await getMentionText(targetJid);
-      const updated = await (prisma as any).groupParticipant.updateMany({
+      
+      // 1. Garantimos que o registro existe e incrementamos
+      await (prisma as any).groupParticipant.updateMany({
         where: { userJid: targetJid, group: { jid: msg.remoteJid } },
         data: { warningsCount: { increment: 1 } }
       });
       
+      // 2. Buscamos o valor atualizado
       const part = await (prisma as any).groupParticipant.findFirst({
           where: { userJid: targetJid, group: { jid: msg.remoteJid } },
           select: { warningsCount: true }
       });
 
-      await whatsapp.sendMessage(msg.remoteJid, `⚠️ Atenção ${mentionTextAdv}, tu tomou uma advertência! Agora você tem *${part?.warningsCount || 0}* advs. Próxima é vala.`, [targetJid]);
+      const advCount = part?.warningsCount || 1;
+
+      if (advCount >= 2) {
+          // REMOÇÃO AUTOMÁTICA
+          await whatsapp.sendMessage(msg.remoteJid, `⚠️ ${mentionTextAdv} atingiu o limite de *2 advertências* e será removido. Vala! 🧹`, [targetJid]);
+          
+          // Pequeno delay para a mensagem ser lida antes do ban
+          setTimeout(async () => {
+              await whatsapp.groupUpdateParticipant(msg.remoteJid, 'remove', [targetJid]);
+              // Opcional: Resetar as advs se ele voltar um dia
+              await (prisma as any).groupParticipant.updateMany({
+                  where: { userJid: targetJid, group: { jid: msg.remoteJid } },
+                  data: { warningsCount: 0 }
+              });
+          }, 2000);
+      } else {
+          // APENAS AVISO
+          await whatsapp.sendMessage(msg.remoteJid, `⚠️ Atenção ${mentionTextAdv}, você tomou uma advertência! Agora você tem *${advCount}/2*. Se tomar mais uma, é ban!`, [targetJid]);
+      }
       return true;
 
     default:
