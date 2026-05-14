@@ -56,20 +56,21 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       return true;
 
     case 'todos':
-    case 'marcar':
+    case 'marcar': {
       // Tag All logic - simplistic version fetching from GroupParticipants
       await whatsapp.syncGroupParticipants(msg.remoteJid);
       const participants: any[] = await (prisma as any).groupParticipant.findMany({ 
         where: { group: { jid: msg.remoteJid } },
         select: { userJid: true }
       });
-      const mentionList = participants.map((u: any) => u.userJid);
-      await whatsapp.sendMessage(msg.remoteJid, `📢 *FILHOTE CHAMANDO A TROPA!* 📢\n\n${args.join(' ') || 'Bora reagir, bando de desocupado!'}`, mentionList);
+      const list = participants.map((u: any) => u.userJid);
+      await whatsapp.sendMessage(msg.remoteJid, `📢 *FILHOTE CHAMANDO A TROPA!* 📢\n\n${args.join(' ') || 'Bora reagir, bando de desocupado!'}`, list);
       return true;
+    }
 
     case 'adv':
     case 'alertar':
-    case 'avisar':
+    case 'avisar': {
       const mentionTextAdv = await getMentionText(targetJid);
       
       // 1. Incrementamos as ADVs (tentamos pelo JID resolvido ou pelo original)
@@ -107,6 +108,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
           await whatsapp.sendMessage(msg.remoteJid, `⚠️ Atenção ${mentionTextAdv}, você tomou uma advertência! Agora você tem *${advCount}/2*. Se tomar mais uma, é ban!`, mentionList);
       }
       return true;
+    }
 
     default:
       return false;
