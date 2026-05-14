@@ -199,4 +199,30 @@ export class WhatsAppService {
 
     return number;
   }
+
+  /**
+   * Converte um LID (ID gigante) para um JID de número real se necessário
+   */
+  async resolveJid(jid: string): Promise<string> {
+    if (!jid.includes('@lid')) return jid; // Já é um número real
+
+    try {
+      // 1. Tenta no banco de dados primeiro
+      const user = await (prisma as any).user.findUnique({ where: { jid } });
+      if (user?.pushName && !user.pushName.includes('@')) {
+          // Se tivermos o nome, o WhatsApp geralmente aceita o LID na array de mentions 
+          // mas o texto precisa ser amigável. Porém, o mais seguro é buscar o número.
+      }
+
+      // 2. Busca na API de contatos da Evolution
+      const contact = await this.getContact(jid.split('@')[0]);
+      if (contact?.phoneNumber) {
+          return contact.phoneNumber; // Retorna o JID com o número real
+      }
+    } catch (e) {
+      console.error('[RESOLVE JID ERROR]:', e);
+    }
+
+    return jid; // Fallback para o LID se tudo falhar
+  }
 }

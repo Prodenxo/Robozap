@@ -8,7 +8,8 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
   const isGroup = msg.remoteJid.endsWith('@g.us');
   if (!isGroup) return false;
 
-  const targetJid = msg.quotedParticipant || msg.mentionedJid?.[0];
+  const rawTargetJid = msg.quotedParticipant || msg.mentionedJid?.[0];
+  const targetJid = rawTargetJid ? await whatsapp.resolveJid(rawTargetJid) : null;
   
   if (['promover', 'banir', 'remover', 'demitir', 'rebaixar', 'adv'].includes(command)) {
       if (!targetJid) {
