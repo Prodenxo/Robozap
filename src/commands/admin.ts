@@ -17,7 +17,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       }
   }
 
-  // FUNÇÃO DE MARCAÇÃO LIMPA (Usa o número para o WhatsApp reconhecer como menção)
+  // FUNÇÃO DE MARCAÇÃO REAL (O WhatsApp só "pinta" de verde se for o número)
   const getMentionText = async (jid: string) => {
       const number = jid.split('@')[0];
       return `@${number}`;
