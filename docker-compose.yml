@@ -24,10 +24,25 @@ services:
       API_PORT: "9000"
       RATELIMIT_WINDOW: "60"
       RATELIMIT_MAX: "30"
-      # Se YouTube bloquear: monte cookies.txt e descomente a linha abaixo
-      # YOUTUBE_COOKIE_FILE: /cookies/cookies.txt
+      # Cookies YouTube (copie cookies.json para a pasta do projeto)
+      COOKIE_PATH: /cookies.json
+      # Opcional depois: renovação automática sem exportar de novo
+      # YOUTUBE_SESSION_SERVER: http://yt-session:8080/
+      # YOUTUBE_SESSION_INNERTUBE_CLIENT: WEB_EMBEDDED
+    volumes:
+      - ./cookies.json:/cookies.json:ro
+    # depends_on:
+    #   - yt-session
     networks:
       - robozap-net
+
+  # Descomente se for usar YOUTUBE_SESSION_SERVER no cobalt (sem cookies manuais)
+  # yt-session:
+  #   image: ghcr.io/imputnet/yt-session-generator:webserver
+  #   init: true
+  #   restart: unless-stopped
+  #   networks:
+  #     - robozap-net
 
 networks:
   robozap-net:

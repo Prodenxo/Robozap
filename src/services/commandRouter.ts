@@ -7,6 +7,17 @@ import { WhatsAppService } from './whatsapp';
 const stats = new StatsService();
 const whatsapp = new WhatsAppService();
 
+const processedMessageIds = new Map<string, number>();
+const MESSAGE_DEDUPE_MS = 90_000;
+
+function isDuplicateCommandMessage (messageId: string): boolean {
+  const now = Date.now();
+  const seenAt = processedMessageIds.get(messageId);
+  if (seenAt && now - seenAt < MESSAGE_DEDUPE_MS) return true;
+  processedMessageIds.set(messageId, now);
+  return false;
+}
+
 interface MessageData {
   id: string;
   remoteJid: string;
@@ -34,6 +45,11 @@ export const processMessage = async (msg: MessageData) => {
   const command = args.shift()?.toLowerCase();
 
   if (!command) return;
+
+  if (isDuplicateCommandMessage(msg.id)) {
+    console.log(`[ROUTER] Mensagem duplicada ignorada: ${msg.id}`);
+    return;
+  }
 
   // 1. Check Registry
   const handler = COMMAND_MAP[command];

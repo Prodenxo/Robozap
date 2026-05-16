@@ -1,0 +1,6 @@
+{
+  "youtube": [
+    "PREF=...; VISITOR_INFO1_LIVE=...; YSC=...; __Secure-1PSID=...; __Secure-3PSID=...; LOGIN_INFO=... (cole aqui os cookies do YouTube em uma linha, separados por ponto e vírgula)"
+  ],
+  "youtube_oauth": []
+}

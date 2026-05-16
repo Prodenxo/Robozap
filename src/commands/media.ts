@@ -1,5 +1,6 @@
 import { WhatsAppService } from '../services/whatsapp';
 import { MediaService } from '../services/media';
+import { tryAcquireMusicLock, releaseMusicLock } from '../services/musicLock';
 import { botTexts } from '../config/texts';
 import ytdl from '@distube/ytdl-core';
 import path from 'path';
@@ -74,14 +75,21 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
         await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaNoText);
         return true;
       }
-      const musicQuery = args.join(' ');
 
-      await whatsapp.sendMessage(
-        msg.remoteJid,
-        botTexts.media.musicaSearch.replace('$query', musicQuery)
-      );
+      if (!tryAcquireMusicLock(msg.remoteJid)) {
+        await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaBusy);
+        return true;
+      }
+
+      const musicQuery = args.join(' ');
+      let tempPath = '';
 
       try {
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          botTexts.media.musicaSearch.replace('$query', musicQuery)
+        );
+
         let url = musicQuery;
         if (!ytdl.validateURL(musicQuery)) {
           url = await media.searchYouTube(musicQuery) || '';
@@ -92,8 +100,9 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
           return true;
         }
 
-        const tempPath = path.join(process.cwd(), `temp_${Date.now()}.mp3`);
+        tempPath = path.join(process.cwd(), `temp_${Date.now()}.mp3`);
         const downloadTimeoutMs = Number(process.env.MUSIC_DOWNLOAD_TIMEOUT_MS) || 120000;
+
         await Promise.race([
           media.downloadMusic(url, tempPath),
           new Promise((_, reject) => {
@@ -103,11 +112,23 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
             );
           })
         ]);
+
+        if (!fs.existsSync(tempPath) || fs.statSync(tempPath).size === 0) {
+          throw new Error('Arquivo de áudio vazio');
+        }
+
         await whatsapp.sendMedia(msg.remoteJid, tempPath, 'audio');
-        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('Music Error:', error);
-        await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaErrorGeneric);
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('youtube.login')) {
+          await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaErrorYoutubeLogin);
+        } else {
+          await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaErrorGeneric);
+        }
+      } finally {
+        if (tempPath && fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+        releaseMusicLock(msg.remoteJid);
       }
       return true;
 

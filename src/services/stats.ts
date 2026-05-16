@@ -29,9 +29,14 @@ export class StatsService {
           }
       });
 
-      // 4. Log Message
-      await (prisma as any).messageLog.create({
-        data: {
+      // 4. Log Message (ignora duplicata do mesmo webhook)
+      await (prisma as any).messageLog.upsert({
+        where: { messageId },
+        update: {
+          content: text || '',
+          userJid
+        },
+        create: {
           messageId,
           content: text || '',
           userJid,

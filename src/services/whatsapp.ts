@@ -114,19 +114,21 @@ export class WhatsAppService {
   }
 
   async sendMedia(remoteJid: string, mediaPath: string, type: 'audio' | 'video' | 'image') {
+    const mediaBuffer = fs.readFileSync(mediaPath);
+    const base64 = mediaBuffer.toString('base64');
+
     try {
-      const mediaBuffer = fs.readFileSync(mediaPath);
-      const base64 = mediaBuffer.toString('base64');
       await axios.post(`${this.baseUrl}/message/sendMedia/${this.instance}`, {
         number: remoteJid,
         mediatype: type,
         mimetype: type === 'audio' ? 'audio/mpeg' : (type === 'image' ? 'image/jpeg' : 'video/mp4'),
-        caption: type === 'audio' ? '' : 'Enviado por RoboZap',
+        caption: '',
         media: base64,
         fileName: path.basename(mediaPath)
       }, { headers: this.headers });
     } catch (error: any) {
       console.error('Error sending media:', error.response?.data || error.message);
+      throw new Error('Falha ao enviar áudio no WhatsApp');
     }
   }
 
