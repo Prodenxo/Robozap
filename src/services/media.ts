@@ -170,7 +170,7 @@ export class MediaService {
         const message = error instanceof Error ? error.message : String(error);
         console.error('[YT-DLP ERROR]:', message);
         throw new Error(
-          'Não consegui baixar o áudio agora. Configure COBALT_API_URL (recomendado) ou tente de novo.'
+          'Não consegui baixar o áudio. Suba o Cobalt (porta 9000) e aponte COBALT_API_URL, ou tente de novo.'
         );
       }
     });

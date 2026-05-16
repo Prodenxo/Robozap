@@ -253,15 +253,20 @@ interface CobaltResponse {
   error?: { code?: string };
 }
 
-async function tryCobaltDownload (
-  url: string,
-  outputPath: string
-): Promise<void> {
-  const base = process.env.COBALT_API_URL?.trim().replace(/\/$/, '');
-  if (!base) {
-    throw new Error('COBALT_API_URL não configurado');
-  }
+function resolveCobaltBases (): string[] {
+  const fromEnv = envList('COBALT_API_URL');
+  const defaults = [
+    'http://cobalt:9000',
+    'http://127.0.0.1:9000',
+    'http://localhost:9000'
+  ];
+  return uniqueBases([...fromEnv, ...defaults]);
+}
 
+async function requestCobaltAudio (
+  base: string,
+  youtubeUrl: string
+): Promise<{ downloadUrl: string; base: string }> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'Content-Type': 'application/json'
@@ -272,12 +277,10 @@ async function tryCobaltDownload (
     headers.Authorization = `Api-Key ${apiKey}`;
   }
 
-  console.log(`[COBALT] Processando ${url} via ${base}`);
-
   const { data } = await axios.post<CobaltResponse>(
     base,
     {
-      url,
+      url: youtubeUrl,
       downloadMode: 'audio',
       audioFormat: 'mp3',
       audioBitrate: '128'
@@ -297,8 +300,35 @@ async function tryCobaltDownload (
     ? data.url
     : `${base}${data.url.startsWith('/') ? '' : '/'}${data.url}`;
 
-  await downloadStreamToFile(downloadUrl, outputPath, 'audio/mpeg', base);
-  console.log('[COBALT] Download concluído');
+  return { downloadUrl, base };
+}
+
+async function tryCobaltDownload (
+  url: string,
+  outputPath: string
+): Promise<void> {
+  const bases = resolveCobaltBases();
+  if (!bases.length) {
+    throw new Error('COBALT_API_URL não configurado');
+  }
+
+  let lastError: Error | null = null;
+
+  for (const base of bases) {
+    try {
+      console.log(`[COBALT] Processando ${url} via ${base}`);
+      const { downloadUrl } = await requestCobaltAudio(base, url);
+      await downloadStreamToFile(downloadUrl, outputPath, 'audio/mpeg', base);
+      console.log(`[COBALT] Download concluído via ${base}`);
+      return;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[COBALT] Falha em ${base}: ${message}`);
+      lastError = error instanceof Error ? error : new Error(message);
+    }
+  }
+
+  throw lastError ?? new Error('Nenhum endpoint Cobalt respondeu.');
 }
 
 async function tryYtdlCoreDownload (
@@ -403,24 +433,12 @@ export async function downloadYouTubeAudioProxy (
     throw new Error('Não foi possível extrair o ID do vídeo.');
   }
 
-  const steps: Array<{ name: string; run: () => Promise<void> }> = [];
-  const cobaltUrl = process.env.COBALT_API_URL?.trim();
-  const allowPipedFallback = process.env.YOUTUBE_ENABLE_PIPED === 'true';
-
-  if (cobaltUrl) {
-    steps.push({
-      name: 'cobalt',
-      run: () => tryCobaltDownload(url, outputPath)
-    });
-  }
-
-  if (!cobaltUrl || allowPipedFallback) {
-    steps.push(
-      { name: 'piped', run: () => tryPipedRace(videoId, outputPath) },
-      { name: 'ytdl-core', run: () => tryYtdlCoreDownload(url, outputPath) },
-      { name: 'invidious', run: () => tryInvidiousDownload(videoId, outputPath) }
-    );
-  }
+  const steps: Array<{ name: string; run: () => Promise<void> }> = [
+    { name: 'cobalt', run: () => tryCobaltDownload(url, outputPath) },
+    { name: 'piped', run: () => tryPipedRace(videoId, outputPath) },
+    { name: 'ytdl-core', run: () => tryYtdlCoreDownload(url, outputPath) },
+    { name: 'invidious', run: () => tryInvidiousDownload(videoId, outputPath) }
+  ];
 
   let lastError: Error | null = null;
 

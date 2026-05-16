@@ -31,31 +31,32 @@ app.post('/webhook/evolution', async (req, res) => {
 
 async function logMusicBackendStatus (): Promise<void> {
   console.log(`[ROBOZAP] Music build: ${MUSIC_BUILD}`);
-  const cobaltUrl = process.env.COBALT_API_URL?.trim();
 
-  if (!cobaltUrl) {
-    console.warn(
-      '[ROBOZAP] COBALT_API_URL ausente — .tocar usará Piped (instável). Use docker compose com o serviço cobalt.'
-    );
-    return;
+  const cobaltCandidates = (process.env.COBALT_API_URL ?? 'http://cobalt:9000')
+    .split(',')
+    .map((value) => value.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+
+  const extras = ['http://127.0.0.1:9000', 'http://localhost:9000'];
+  const all = [...new Set([...cobaltCandidates, ...extras])];
+
+  for (const cobaltUrl of all) {
+    try {
+      const { data } = await axios.get(cobaltUrl, { timeout: 5000 });
+      const version = data?.cobalt?.version ?? 'ok';
+      console.log(`[ROBOZAP] Cobalt online em ${cobaltUrl} (versão ${version})`);
+      return;
+    } catch {
+      // tenta próximo
+    }
   }
 
-  console.log(`[ROBOZAP] COBALT_API_URL=${cobaltUrl}`);
-
-  try {
-    const { data } = await axios.get(cobaltUrl.replace(/\/$/, ''), {
-      timeout: 8000
-    });
-    const version = data?.cobalt?.version ?? 'ok';
-    console.log(`[ROBOZAP] Cobalt online (versão ${version})`);
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(
-      `[ROBOZAP] Cobalt INACESSÍVEL em ${cobaltUrl}: ${message}`,
-      '\n→ Suba com: docker compose up -d',
-      '\n→ Robozap e Cobalt precisam estar na MESMA rede Docker.'
-    );
-  }
+  console.error(
+    '[ROBOZAP] Cobalt OFFLINE — suba o container ghcr.io/imputnet/cobalt na porta 9000',
+    '\n→ Docker Compose: docker compose up -d (robozap + cobalt juntos)',
+    '\n→ Painel (2 apps): COBALT_API_URL=http://NOME-INTERNO-DO-COBALT:9000',
+    '\n→ Mesmo servidor: COBALT_API_URL=http://127.0.0.1:9000'
+  );
 }
 
 app.listen(PORT, () => {
