@@ -43,5 +43,4 @@ COPY --from=builder /app/prisma ./prisma
 
 EXPOSE 3000
 
-# Script to force sync database schema and then start
-CMD npx prisma db push --accept-data-loss && npm start
+CMD sh -c "npx prisma db push --accept-data-loss || echo '[ROBOZAP] prisma db push falhou, subindo mesmo assim'; exec npm start"

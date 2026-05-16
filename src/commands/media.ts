@@ -75,7 +75,12 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
         return true;
       }
       const musicQuery = args.join(' ');
-      
+
+      await whatsapp.sendMessage(
+        msg.remoteJid,
+        botTexts.media.musicaSearch.replace('$query', musicQuery)
+      );
+
       try {
         let url = musicQuery;
         if (!ytdl.validateURL(musicQuery)) {
@@ -88,8 +93,16 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
         }
 
         const tempPath = path.join(process.cwd(), `temp_${Date.now()}.mp3`);
-        await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaSearch.replace('$query', musicQuery));
-        await media.downloadMusic(url, tempPath);
+        const downloadTimeoutMs = Number(process.env.MUSIC_DOWNLOAD_TIMEOUT_MS) || 120000;
+        await Promise.race([
+          media.downloadMusic(url, tempPath),
+          new Promise((_, reject) => {
+            setTimeout(
+              () => reject(new Error('Timeout no download da música')),
+              downloadTimeoutMs
+            );
+          })
+        ]);
         await whatsapp.sendMedia(msg.remoteJid, tempPath, 'audio');
         if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
       } catch (error) {

@@ -59,7 +59,7 @@ async function logMusicBackendStatus (): Promise<void> {
   );
 }
 
-app.listen(PORT, () => {
-  console.log(`[ROBOZAP] Server running on port ${PORT}`);
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`[ROBOZAP] Server running on port ${PORT} (0.0.0.0)`);
   void logMusicBackendStatus();
 });

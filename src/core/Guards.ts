@@ -26,23 +26,35 @@ export class SubscriptionGuard {
   /**
    * Verifica se o grupo está com a assinatura em dia
    */
-  static async checkSubscription(groupJid: string) {
-    const group = await prisma.group.findUnique({ where: { jid: groupJid } });
-    
-    if (!group) return true; // Default to active if not tracked yet
+  static async checkSubscription (groupJid: string) {
+    try {
+      const group = await prisma.group.findUnique({ where: { jid: groupJid } });
 
-    const now = new Date();
-    if (group.subscriptionStatus === 'EXPIRED' || (group.subscriptionExpiresAt && group.subscriptionExpiresAt < now)) {
-      return false;
+      if (!group) return true;
+
+      const now = new Date();
+      if (
+        group.subscriptionStatus === 'EXPIRED' ||
+        (group.subscriptionExpiresAt && group.subscriptionExpiresAt < now)
+      ) {
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.error('[SUBSCRIPTION] Erro ao consultar banco — liberando comando:', error);
+      return true;
     }
-    return true;
   }
 
   /**
    * Retorna o sufixo de assinatura (emoji invisível se expirado)
    */
-  static async getSuffix(groupJid: string) {
-    const active = await this.checkSubscription(groupJid);
-    return active ? '' : ' 🫥';
+  static async getSuffix (groupJid: string) {
+    try {
+      const active = await this.checkSubscription(groupJid);
+      return active ? '' : ' 🫥';
+    } catch {
+      return '';
+    }
   }
 }

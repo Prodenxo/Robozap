@@ -2,8 +2,10 @@ import { COMMAND_MAP } from '../core/CommandRegistry';
 import { SubscriptionGuard, PermissionGuard } from '../core/Guards';
 import { StatsService } from './stats';
 import { botTexts } from '../config/texts';
+import { WhatsAppService } from './whatsapp';
 
 const stats = new StatsService();
+const whatsapp = new WhatsAppService();
 
 interface MessageData {
   id: string;
@@ -45,17 +47,23 @@ export const processMessage = async (msg: MessageData) => {
   const isEssential = ['menu', 'vencimento', 'ajuda', 'filhote.ajuda'].includes(command);
   
   if (!isSubscriber && !isEssential) {
-      // Injetamos a lógica do emoji expirado conforme solicitado (🫥)
       console.log(`[SUBSCRIPTION] ❌ Comando BLOQUEADO. Grupo ${msg.remoteJid} está EXPIRADO.`);
-      return; // O bot responde via handler se implementado lá, ou aqui injetamos o aviso.
+      await whatsapp.sendMessage(
+        msg.remoteJid,
+        botTexts.general.vencimentoExpirada + (suffix || ' 🫥')
+      );
+      return;
   }
 
   console.log(`[ROUTER] Executing Command: .${command} (User: ${msg.pushName})`);
 
   try {
-      // 3. Permissões serão checadas dentro do handler ou aqui no router (refatorando)
       await handler(command, args, msg, suffix);
   } catch (error) {
       console.error(`Error in command ${command}:`, error);
+      await whatsapp.sendMessage(
+        msg.remoteJid,
+        '💀 *Deu ruim aqui no sistema.* Tenta de novo em 1 minuto.'
+      );
   }
 };
