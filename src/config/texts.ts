@@ -65,7 +65,7 @@ export const botTexts = {
     musicaNoText: "🎵 *QUER OUVIR O QUÊ?* Manda o nome da música ou o link, não sou vidente.",
     musicaErrorNotFound: "🚫 *ACHEI FOI NADA.* Essa música aí nem existe na minha quebrada. Tenta outro nome.",
     musicaSearch: "🔍 *BUSCANDO BRABA:* \"$query\"... Já te mando o som!",
-    musicaErrorGeneric: "💀 *ERRO CRÍTICO, PARCEIRO.* O som tá travado. O YouTube tá de marcação comigo.",
+    musicaErrorGeneric: "💀 *ERRO NO SOM.* Não rolou baixar agora. Tenta de novo em 1 min ou manda o link direto do YouTube.",
     downloadStart: "📥 *PEGANDO A BRABA:* Peraí que tô baixando o vídeo pra tu...",
     downloadErrorGeneric: "❌ *DEU RUIM NO DOWNLOAD.* Essa rede aí tá bloqueando o Filhote. Tenta outra.",
   },
