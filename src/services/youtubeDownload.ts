@@ -63,11 +63,34 @@ function normalizeApiBase (base: string): string {
 }
 
 function buildPipedStreamsUrl (base: string, videoId: string): string {
-  const normalized = normalizeApiBase(base);
-  const endpoint = new URL('/streams/' + videoId, normalized.endsWith('/')
-    ? normalized
-    : `${normalized}/`);
-  return endpoint.toString();
+  return `${normalizeApiBase(base)}/streams/${videoId}`;
+}
+
+function normalizeYoutubeWatchUrl (url: string): string {
+  const videoId = extractYouTubeVideoId(url);
+  if (!videoId) return url;
+  return `https://www.youtube.com/watch?v=${videoId}`;
+}
+
+function getAxiosErrorDetail (error: unknown): string {
+  if (!axios.isAxiosError(error)) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  const apiError = error.response?.data as {
+    status?: string;
+    error?: { code?: string };
+  } | undefined;
+
+  if (apiError?.error?.code) {
+    return apiError.error.code;
+  }
+
+  if (apiError && typeof apiError === 'object') {
+    return JSON.stringify(apiError);
+  }
+
+  return error.message;
 }
 
 function shellQuote (value: string): string {
@@ -255,12 +278,8 @@ interface CobaltResponse {
 
 function resolveCobaltBases (): string[] {
   const fromEnv = envList('COBALT_API_URL');
-  const defaults = [
-    'http://cobalt:9000',
-    'http://127.0.0.1:9000',
-    'http://localhost:9000'
-  ];
-  return uniqueBases([...fromEnv, ...defaults]);
+  if (fromEnv.length) return uniqueBases(fromEnv);
+  return uniqueBases(['http://cobalt:9000']);
 }
 
 async function requestCobaltAudio (
@@ -277,15 +296,19 @@ async function requestCobaltAudio (
     headers.Authorization = `Api-Key ${apiKey}`;
   }
 
+  const endpoint = `${normalizeApiBase(base)}/`;
+  const normalizedUrl = normalizeYoutubeWatchUrl(youtubeUrl);
+
   const { data } = await axios.post<CobaltResponse>(
-    base,
+    endpoint,
     {
-      url: youtubeUrl,
+      url: normalizedUrl,
       downloadMode: 'audio',
       audioFormat: 'mp3',
-      audioBitrate: '128'
+      audioBitrate: '128',
+      youtubeBetterAudio: true
     },
-    { headers, timeout: 90000 }
+    { headers, timeout: 120000 }
   );
 
   if (data.status === 'error') {
@@ -296,11 +319,18 @@ async function requestCobaltAudio (
     throw new Error(`resposta cobalt inválida: ${data.status}`);
   }
 
-  const downloadUrl = data.url.startsWith('http')
-    ? data.url
-    : `${base}${data.url.startsWith('/') ? '' : '/'}${data.url}`;
+  let downloadUrl = data.url;
+  if (!downloadUrl.startsWith('http')) {
+    downloadUrl = `${normalizeApiBase(base)}${downloadUrl.startsWith('/') ? '' : '/'}${downloadUrl}`;
+  }
 
-  return { downloadUrl, base };
+  if (downloadUrl.includes('127.0.0.1') || downloadUrl.includes('localhost')) {
+    downloadUrl = downloadUrl
+      .replace(/https?:\/\/127\.0\.0\.1:\d+/g, normalizeApiBase(base))
+      .replace(/https?:\/\/localhost:\d+/g, normalizeApiBase(base));
+  }
+
+  return { downloadUrl, base: normalizeApiBase(base) };
 }
 
 async function tryCobaltDownload (
@@ -322,9 +352,9 @@ async function tryCobaltDownload (
       console.log(`[COBALT] Download concluído via ${base}`);
       return;
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getAxiosErrorDetail(error);
       console.warn(`[COBALT] Falha em ${base}: ${message}`);
-      lastError = error instanceof Error ? error : new Error(message);
+      lastError = new Error(message);
     }
   }
 

@@ -39,7 +39,16 @@ export const handleWebhook = async (data: any) => {
     return handleGroupUpdate(groupData);
   }
 
-  if (data.event) console.log(`[ROBOZAP] Evento ignorado ou desconhecido: ${data.event}`);
+  const ignoredEvents = new Set([
+    'send.message',
+    'contacts.update',
+    'chats.update',
+    'presence.update',
+    'messages.update'
+  ]);
+  if (data.event && !ignoredEvents.has(data.event)) {
+    console.log(`[ROBOZAP] Evento ignorado ou desconhecido: ${data.event}`);
+  }
 };
 
 async function handleMessageUpsert(message: any) {

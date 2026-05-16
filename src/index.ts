@@ -37,8 +37,7 @@ async function logMusicBackendStatus (): Promise<void> {
     .map((value) => value.trim().replace(/\/$/, ''))
     .filter(Boolean);
 
-  const extras = ['http://127.0.0.1:9000', 'http://localhost:9000'];
-  const all = [...new Set([...cobaltCandidates, ...extras])];
+  const all = [...new Set(cobaltCandidates)];
 
   for (const cobaltUrl of all) {
     try {

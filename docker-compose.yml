@@ -24,6 +24,8 @@ services:
       API_PORT: "9000"
       RATELIMIT_WINDOW: "60"
       RATELIMIT_MAX: "30"
+      # Se YouTube bloquear: monte cookies.txt e descomente a linha abaixo
+      # YOUTUBE_COOKIE_FILE: /cookies/cookies.txt
     networks:
       - robozap-net
 
