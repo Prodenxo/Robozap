@@ -3,7 +3,10 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
-import { downloadYouTubeAudioProxy } from './youtubeDownload';
+import {
+  downloadYouTubeAudioProxy,
+  enqueueYouTubeDownload
+} from './youtubeDownload';
 
 const execAsync = promisify(exec)
 
@@ -15,6 +18,10 @@ interface YtDlpStrategy {
 }
 
 function getCookiesPath (): string | null {
+  if (process.env.YOUTUBE_USE_COOKIES !== 'true') {
+    return null
+  }
+
   const fromEnv = process.env.YOUTUBE_COOKIES_PATH?.trim()
   const candidates = [
     fromEnv,
@@ -146,25 +153,27 @@ export class MediaService {
   }
 
   async downloadMusic (url: string, outputPath: string): Promise<void> {
-    try {
-      console.log('[MEDIA] Baixando áudio via Piped/Invidious (sem cookies)...');
-      await downloadYouTubeAudioProxy(url, outputPath);
-      return;
-    } catch (proxyError: unknown) {
-      const proxyMessage =
-        proxyError instanceof Error ? proxyError.message : String(proxyError);
-      console.warn('[MEDIA] Proxy falhou, tentando yt-dlp:', proxyMessage);
-    }
+    return enqueueYouTubeDownload(async () => {
+      try {
+        console.log('[MEDIA] Baixando áudio (Cobalt/Piped/ytdl-core)...');
+        await downloadYouTubeAudioProxy(url, outputPath);
+        return;
+      } catch (proxyError: unknown) {
+        const proxyMessage =
+          proxyError instanceof Error ? proxyError.message : String(proxyError);
+        console.warn('[MEDIA] Proxies falharam, tentando yt-dlp:', proxyMessage);
+      }
 
-    try {
-      await this.runYtDlp(url, outputPath, 'audio');
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error('[YT-DLP ERROR]:', message);
-      throw new Error(
-        'Não consegui baixar o áudio agora. Tenta de novo em alguns minutos ou manda o link direto do YouTube.'
-      );
-    }
+      try {
+        await this.runYtDlp(url, outputPath, 'audio');
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('[YT-DLP ERROR]:', message);
+        throw new Error(
+          'Não consegui baixar o áudio agora. Configure COBALT_API_URL (recomendado) ou tente de novo.'
+        );
+      }
+    });
   }
 
   async downloadVideo (url: string, outputPath: string): Promise<void> {

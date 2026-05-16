@@ -1,0 +1,32 @@
+services:
+  robozap:
+    build: .
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    env_file:
+      - .env
+    environment:
+      COBALT_API_URL: http://cobalt:9000/
+    depends_on:
+      - cobalt
+    restart: unless-stopped
+    networks:
+      - robozap-net
+
+  cobalt:
+    image: ghcr.io/imputnet/cobalt:latest
+    init: true
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      API_URL: http://cobalt:9000/
+      API_PORT: "9000"
+      RATELIMIT_WINDOW: "60"
+      RATELIMIT_MAX: "30"
+    networks:
+      - robozap-net
+
+networks:
+  robozap-net:
+    driver: bridge

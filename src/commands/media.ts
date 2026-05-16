@@ -87,7 +87,7 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
           return true;
         }
 
-        const tempPath = path.join(__dirname, `../../temp_${Date.now()}.mp3`);
+        const tempPath = path.join(process.cwd(), `temp_${Date.now()}.mp3`);
         await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaSearch.replace('$query', musicQuery));
         await media.downloadMusic(url, tempPath);
         await whatsapp.sendMedia(msg.remoteJid, tempPath, 'audio');
