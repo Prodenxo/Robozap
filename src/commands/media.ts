@@ -123,6 +123,8 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
         const message = error instanceof Error ? error.message : String(error);
         if (message.includes('youtube.login')) {
           await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaErrorYoutubeLogin);
+        } else if (message.includes('no_session_tokens')) {
+          await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaErrorNoSession);
         } else if (message.includes('youtube.api_error')) {
           await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaErrorYoutubeApi);
         } else {
