@@ -308,7 +308,7 @@ async function requestCobaltAudio (
       audioBitrate: '128',
       youtubeBetterAudio: true
     },
-    { headers, timeout: 120000 }
+    { headers, timeout: 180000 }
   );
 
   if (data.status === 'error') {
