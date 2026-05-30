@@ -278,8 +278,17 @@ interface CobaltResponse {
 
 function resolveCobaltBases (): string[] {
   const fromEnv = envList('COBALT_API_URL');
-  if (fromEnv.length) return uniqueBases(fromEnv);
-  return uniqueBases(['http://cobalt:9000']);
+  const fallbacks = [
+    'https://apicobalt.mgytr.top',
+    'https://api.cobalt.liubquanti.click',
+    'https://api.qwkuns.me',
+    'https://api.cobalt.blackcat.sweeux.org'
+  ];
+  
+  if (fromEnv.length) {
+    return uniqueBases([...fromEnv, ...fallbacks]);
+  }
+  return uniqueBases(['http://cobalt:9000', ...fallbacks]);
 }
 
 async function requestCobaltAudio (
