@@ -147,9 +147,17 @@ export class WhatsAppService {
 
   async syncGroupParticipants(groupJid: string) {
     try {
-      const response = await axios.get(`${this.baseUrl}/group/getParticipants/${this.instance}?groupJid=${groupJid}`, {
-        headers: this.headers
-      });
+      let response;
+      try {
+        response = await axios.get(`${this.baseUrl}/group/participants/${this.instance}?groupJid=${groupJid}`, {
+          headers: this.headers
+        });
+      } catch (e1: any) {
+        console.warn(`[SYNC WARNING] /group/participants failed (${e1.message}), trying legacy /group/getParticipants...`);
+        response = await axios.get(`${this.baseUrl}/group/getParticipants/${this.instance}?groupJid=${groupJid}`, {
+          headers: this.headers
+        });
+      }
       
       const participants = response.data || [];
       
