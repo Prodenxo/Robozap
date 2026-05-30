@@ -161,8 +161,8 @@ export class WhatsAppService {
 
       for (const p of participants) {
           const jid = p.id || p.jid;
-          const name = p.pushName || p.name || p.verifiedName;
-          if (jid && name) {
+          if (jid) {
+              const name = p.pushName || p.name || p.verifiedName || 'Usuário';
               await (prisma as any).user.upsert({
                   where: { jid },
                   update: { pushName: name },

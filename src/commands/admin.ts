@@ -66,14 +66,17 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
 
     case 'todos':
     case 'marcar': {
-      // Tag All logic - simplistic version fetching from GroupParticipants
       await whatsapp.syncGroupParticipants(msg.remoteJid);
       const participants: any[] = await (prisma as any).groupParticipant.findMany({ 
         where: { group: { jid: msg.remoteJid } },
         select: { userJid: true }
       });
       const list = participants.map((u: any) => u.userJid);
-      await whatsapp.sendMessage(msg.remoteJid, `📢 *FILHOTE CHAMANDO A TROPA!* 📢\n\n${args.join(' ') || 'Bora reagir, bando de desocupado!'}`, list);
+      
+      const mentionsText = list.map((jid: string) => `@${jid.split('@')[0]}`).join(' ');
+      const text = `📢 *FILHOTE CHAMANDO A TROPA!* 📢\n\n${args.join(' ') || 'Bora reagir, bando de desocupado!'}\n\n${mentionsText}`;
+      
+      await whatsapp.sendMessage(msg.remoteJid, text, list);
       return true;
     }
 

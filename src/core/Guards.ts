@@ -13,11 +13,28 @@ export class PermissionGuard {
    * Verifica se o usuário tem o cargo mínimo para o comando
    */
   static async canExecute(userJid: string, groupJid: string, minRole: number) {
+    console.log(`[GUARD DEBUG] canExecute - userJid: ${userJid}, groupJid: ${groupJid}, minRole: ${minRole}`);
+
     const participant = await prisma.groupParticipant.findFirst({
       where: { userJid, group: { jid: groupJid } }
     });
 
-    if (!participant) return minRole === this.ROLES.MEMBRO; // Default for new users
+    if (!participant) {
+      console.log(`[GUARD DEBUG] Participant NOT found in DB. Listing all participants in group ${groupJid}:`);
+      try {
+        const allParts = await prisma.groupParticipant.findMany({
+          where: { group: { jid: groupJid } },
+          select: { userJid: true, roleCode: true }
+        });
+        console.log(`[GUARD DEBUG] Total participants in DB: ${allParts.length}`);
+        console.log(`[GUARD DEBUG] Participants in DB:`, JSON.stringify(allParts));
+      } catch (e) {
+        console.error(`[GUARD DEBUG] Error listing participants:`, e);
+      }
+      return minRole === this.ROLES.MEMBRO; // Default for new users
+    }
+
+    console.log(`[GUARD DEBUG] Participant found in DB. roleCode: ${participant.roleCode}`);
     return participant.roleCode <= minRole;
   }
 }

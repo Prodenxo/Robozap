@@ -109,7 +109,8 @@ async function handleGroupUpdate(data: any) {
   for (let p of participants) {
     let jid = typeof p === 'object' ? (p.phoneNumber || p.id) : p;
     if (typeof jid === 'string') {
-      jidsToWelcome.push(jid);
+      const resolved = await whatsapp.resolveJid(jid);
+      jidsToWelcome.push(resolved);
     }
   }
 
