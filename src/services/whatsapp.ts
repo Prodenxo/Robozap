@@ -159,7 +159,26 @@ export class WhatsAppService {
         });
       }
       
-      const participants = response.data || [];
+      let participants = [];
+      if (response && response.data) {
+          if (Array.isArray(response.data)) {
+              participants = response.data;
+          } else if (Array.isArray(response.data.participants)) {
+              participants = response.data.participants;
+          } else if (Array.isArray(response.data.participantsData)) {
+              participants = response.data.participantsData;
+          } else if (typeof response.data === 'object') {
+              // Tenta achar qualquer propriedade que seja array caso a estrutura mude
+              for (const key in response.data) {
+                  if (Array.isArray(response.data[key])) {
+                      participants = response.data[key];
+                      break;
+                  }
+              }
+          }
+      }
+      
+      console.log(`[SYNC DEBUG] Synced ${participants.length} participants for group ${groupJid}`);
       
       const group = await (prisma as any).group.upsert({
         where: { jid: groupJid },
@@ -178,11 +197,14 @@ export class WhatsAppService {
               });
 
               let roleCode = 5;
-              if (p.admin === 'superadmin') {
-                  roleCode = 1;
-              } else if (p.admin === 'admin') {
-                  roleCode = 3;
+              const pAdmin = p.admin || p.role || p.roleCode;
+              if (pAdmin === 'superadmin' || pAdmin === 'admin' || p.isSuperAdmin || p.isAdmin) {
+                  // Como não há distinção de privilégios para Dono vs Admin nos comandos atuais,
+                  // vamos dar privilégio total (código 3 ou menor) para qualquer nível administrativo.
+                  roleCode = pAdmin === 'superadmin' ? 1 : 3;
               }
+
+              console.log(`[SYNC DEBUG] User ${jid} mapped admin role: ${pAdmin} -> roleCode: ${roleCode}`);
 
               await (prisma as any).groupParticipant.upsert({
                   where: { groupId_userJid: { groupId: group.id, userJid: jid } },
