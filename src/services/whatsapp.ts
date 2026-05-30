@@ -25,11 +25,18 @@ export class WhatsAppService {
 
   async sendMessage(remoteJid: string, text: string, mentions: string[] = []) {
     try {
+      const normalizedMentions = mentions.map(m => {
+        if (typeof m === 'string' && !m.includes('@')) {
+          return `${m}@s.whatsapp.net`;
+        }
+        return m;
+      });
+
       await axios.post(`${this.baseUrl}/message/sendText/${this.instance}`, {
         number: remoteJid,
         text: text,
         linkPreview: false,
-        mentions: mentions
+        mentions: normalizedMentions
       }, { headers: this.headers });
     } catch (error: any) {
       console.error('Error sending message:', error.response?.data || error.message);
@@ -49,8 +56,13 @@ export class WhatsAppService {
       const resData = response.data?.updateParticipants?.[0];
       const realNumber = resData?.content?.attrs?.phone_number || resData?.jid || participants[0];
       
-      console.log(`[EVOLUTION RESOLVED] LID: ${participants[0]} -> Real: ${realNumber}`);
-      return realNumber;
+      let realJid = realNumber;
+      if (typeof realJid === 'string' && !realJid.includes('@')) {
+          realJid = `${realJid}@s.whatsapp.net`;
+      }
+      
+      console.log(`[EVOLUTION RESOLVED] LID: ${participants[0]} -> Real JID: ${realJid}`);
+      return realJid;
     } catch (error: any) {
       console.error(`[EVOLUTION ERROR] ${action}:`, error.response?.data || error.message);
       return participants[0];
@@ -186,9 +198,41 @@ export class WhatsAppService {
         create: { jid: groupJid }
       });
 
+      const syncedJids: string[] = [];
+
       for (const p of participants) {
-          const jid = p.id || p.jid;
+          let jid = p.id || p.jid;
           if (jid) {
+              // 1. Procurar JID real em todos os campos possíveis
+              const fieldsToCheck = [p.jid, p.id, p.realJid, p.phoneNumber, p.phone_number, p.number, p.phone];
+              const realJidCandidate = fieldsToCheck.find(f => typeof f === 'string' && f.includes('@s.whatsapp.net'));
+              
+              if (realJidCandidate) {
+                  jid = realJidCandidate;
+              } else {
+                  // 2. Se for LID mas achou um número sem sufixo que não seja o próprio ID do LID
+                  const rawNum = fieldsToCheck.find(f => {
+                      if (!f) return false;
+                      const s = String(f);
+                      if (s.includes('@lid') || s.includes('@g.us')) return false;
+                      if (jid.includes('@lid') && jid.startsWith(s)) return false;
+                      return true;
+                  });
+
+                  if (rawNum) {
+                      const num = typeof rawNum === 'string' ? rawNum.split('@')[0] : String(rawNum);
+                      if (/^\d{8,15}$/.test(num)) {
+                          jid = `${num}@s.whatsapp.net`;
+                      } else if (jid.includes('@lid')) {
+                          jid = await this.resolveJid(jid);
+                      }
+                  } else if (jid.includes('@lid')) {
+                      jid = await this.resolveJid(jid);
+                  }
+              }
+
+              syncedJids.push(jid);
+
               const name = p.pushName || p.name || p.verifiedName || 'Usuário';
               await (prisma as any).user.upsert({
                   where: { jid },
@@ -199,8 +243,6 @@ export class WhatsAppService {
               let roleCode = 5;
               const pAdmin = p.admin || p.role || p.roleCode;
               if (pAdmin === 'superadmin' || pAdmin === 'admin' || p.isSuperAdmin || p.isAdmin) {
-                  // Como não há distinção de privilégios para Dono vs Admin nos comandos atuais,
-                  // vamos dar privilégio total (código 3 ou menor) para qualquer nível administrativo.
                   roleCode = pAdmin === 'superadmin' ? 1 : 3;
               }
 
@@ -216,6 +258,16 @@ export class WhatsAppService {
                   }
               });
           }
+      }
+
+      // Remover participantes do grupo no banco que não foram listados neste sincronismo (evita duplicatas e limpa quem saiu)
+      if (syncedJids.length > 0) {
+          await (prisma as any).groupParticipant.deleteMany({
+              where: {
+                  groupId: group.id,
+                  userJid: { notIn: syncedJids }
+              }
+          });
       }
       return participants;
     } catch (error) {
@@ -264,11 +316,31 @@ export class WhatsAppService {
 
     console.log(`[DEBUG] Tentando resolver LID: ${jid}`);
     try {
-      const contact = await this.getContact(jid.split('@')[0]);
-      if (contact?.phoneNumber) {
-          const realJid = contact.phoneNumber.includes('@') ? contact.phoneNumber : `${contact.phoneNumber}@s.whatsapp.net`;
-          console.log(`[DEBUG] LID Resolvido com sucesso: ${jid} -> ${realJid}`);
-          return realJid;
+      // Passa o JID completo (incluindo o @lid) para que a Evolution API saiba de qual namespace buscar
+      const contact = await this.getContact(jid);
+      if (contact) {
+          const fields = [contact.phoneNumber, contact.phone_number, contact.number, contact.jid, contact.id, contact.realJid];
+          const realJid = fields.find(f => typeof f === 'string' && f.includes('@s.whatsapp.net'));
+          if (realJid) {
+              console.log(`[DEBUG] LID Resolvido com sucesso (realJid): ${jid} -> ${realJid}`);
+              return realJid;
+          }
+          
+          const rawNum = fields.find(f => {
+              if (!f) return false;
+              const s = String(f);
+              if (s.includes('@lid') || s.includes('@g.us')) return false;
+              return true;
+          });
+          
+          if (rawNum) {
+              const num = typeof rawNum === 'string' ? rawNum.split('@')[0] : String(rawNum);
+              if (/^\d{8,15}$/.test(num)) {
+                  const formattedJid = `${num}@s.whatsapp.net`;
+                  console.log(`[DEBUG] LID Resolvido com sucesso (rawNum): ${jid} -> ${formattedJid}`);
+                  return formattedJid;
+              }
+          }
       }
     } catch (e) {
       console.error('[RESOLVE JID ERROR]:', e);
