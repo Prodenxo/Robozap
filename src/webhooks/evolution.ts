@@ -105,15 +105,19 @@ async function handleGroupUpdate(data: any) {
     return;
   }
 
+  const jidsToWelcome: string[] = [];
   for (let p of participants) {
-    // Se o participante for um objeto (como no seu log), pegamos o phoneNumber ou o id
     let jid = typeof p === 'object' ? (p.phoneNumber || p.id) : p;
-    
-    if (typeof jid !== 'string') continue;
+    if (typeof jid === 'string') {
+      jidsToWelcome.push(jid);
+    }
+  }
 
-    const number = jid.split('@')[0];
-    
-    const welcomeMsg = `👋 Bem-vindo ao Rolezeiros RJ 🍻 @${number}
+  if (jidsToWelcome.length === 0) return;
+
+  const mentionsText = jidsToWelcome.map(jid => `@${jid.split('@')[0]}`).join(', ');
+
+  const welcomeMsg = `👋 Bem-vindo ao Rolezeiros RJ 🍻 ${mentionsText}
 
 Pra todo mundo se conhecer melhor e deixar o grupo mais organizado, mandem a apresentação nesse modelo:
 
@@ -127,8 +131,7 @@ Pra todo mundo se conhecer melhor e deixar o grupo mais organizado, mandem a apr
 
 ⚠️ Fiquem atentos às regras do grupo e ótimos rolês!`;
 
-    console.log(`[BOAS-VINDAS] Enviando para ${number} no grupo ${groupJid}`);
-    
-    await whatsapp.sendMessage(groupJid, welcomeMsg, [jid]);
-  }
+  console.log(`[BOAS-VINDAS] Enviando para ${jidsToWelcome.length} participantes no grupo ${groupJid}`);
+  
+  await whatsapp.sendMessage(groupJid, welcomeMsg, jidsToWelcome);
 }

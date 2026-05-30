@@ -33,6 +33,9 @@ interface MessageData {
 }
 
 export const processMessage = async (msg: MessageData) => {
+  // Resolve LID (ID gigante) para JID real
+  msg.participant = await whatsapp.resolveJid(msg.participant);
+
   // Capture Stats for the group
   if (msg.remoteJid.endsWith('@g.us')) {
       await stats.trackMessage(msg.participant, msg.remoteJid, msg.id, msg.text, msg.pushName);
