@@ -152,6 +152,13 @@ export class WhatsAppService {
       });
       
       const participants = response.data || [];
+      
+      const group = await (prisma as any).group.upsert({
+        where: { jid: groupJid },
+        update: {},
+        create: { jid: groupJid }
+      });
+
       for (const p of participants) {
           const jid = p.id || p.jid;
           const name = p.pushName || p.name || p.verifiedName;
@@ -160,6 +167,23 @@ export class WhatsAppService {
                   where: { jid },
                   update: { pushName: name },
                   create: { jid, pushName: name }
+              });
+
+              let roleCode = 5;
+              if (p.admin === 'superadmin') {
+                  roleCode = 1;
+              } else if (p.admin === 'admin') {
+                  roleCode = 3;
+              }
+
+              await (prisma as any).groupParticipant.upsert({
+                  where: { groupId_userJid: { groupId: group.id, userJid: jid } },
+                  update: { roleCode },
+                  create: {
+                      group: { connect: { id: group.id } },
+                      user: { connect: { jid } },
+                      roleCode
+                  }
               });
           }
       }
