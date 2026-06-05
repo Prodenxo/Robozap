@@ -279,6 +279,13 @@ interface CobaltResponse {
 function resolveCobaltBases (): string[] {
   const fromEnv = envList('COBALT_API_URL');
   const fallbacks = [
+    'https://subito-c.meowing.de',
+    'https://cobalt.omega.wolfy.love',
+    'https://grapefruit.clxxped.lol',
+    'https://nuko-c.meowing.de',
+    'https://lime.clxxped.lol',
+    'https://fox.kittycat.boo',
+    'https://dog.kittycat.boo',
     'https://apicobalt.mgytr.top',
     'https://api.cobalt.liubquanti.click',
     'https://api.qwkuns.me',
