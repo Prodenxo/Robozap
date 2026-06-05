@@ -23,10 +23,10 @@ FROM node:20-slim
 WORKDIR /app
 
 # Install FFmpeg, Python, Curl and Deno (for YouTube JavaScript extraction)
-RUN apt-get update && \
-    apt-get install -y ffmpeg python3 python3-pip curl unzip && \
-    curl -fsSL https://deno.land/install.sh | sh && \
-    curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
+RUN env http_proxy= https_proxy= all_proxy= HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= apt-get update && \
+    env http_proxy= https_proxy= all_proxy= HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= apt-get install -y ffmpeg python3 python3-pip curl unzip && \
+    env http_proxy= https_proxy= all_proxy= HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= curl -fsSL https://deno.land/install.sh | sh && \
+    env http_proxy= https_proxy= all_proxy= HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
     chmod a+rx /usr/local/bin/yt-dlp && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
