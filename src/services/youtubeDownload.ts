@@ -253,11 +253,11 @@ async function tryPipedRace (
           console.log(`[PIPED] Sucesso via ${base}`);
           resolve();
         } catch (error: unknown) {
-          const code = (error as { code?: string })?.code;
-          if (code === 'ERR_CANCELED' || code === 'ECONNABORTED') return;
+          if (abort.signal.aborted) return;
 
+          const code = (error as { code?: string })?.code;
           const message = error instanceof Error ? error.message : String(error);
-          console.warn(`[PIPED] Falha em ${base}: ${message}`);
+          console.warn(`[PIPED] Falha em ${base} (code: ${code}): ${message}`);
           lastError = error instanceof Error ? error : new Error(message);
 
           pending -= 1;
