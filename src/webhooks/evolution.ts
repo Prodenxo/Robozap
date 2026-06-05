@@ -65,7 +65,7 @@ async function handleMessageUpsert(message: any) {
   if (!textContent.trim().startsWith('.')) return;
 
   const remoteJid = message.key.remoteJid;
-  const participant = message.key.participant || remoteJid;
+  const participant = message.sender || message.key.participant || remoteJid;
   const senderName = message.pushName || 'Usuário';
 
   // --- OMNI-SCANNER v3 ---
