@@ -132,6 +132,7 @@ export const COMMAND_MAP: Record<string, Function> = {
   'adv': handleAdminCommands,
   'promover': handleAdminCommands,
   'rebaixar': handleAdminCommands,
+  'demitir': handleAdminCommands,
   'apagar': handleAdminCommands,
   'limpar': handleAdminCommands,
   'marcar': handleAdminCommands,
