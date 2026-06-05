@@ -125,22 +125,48 @@ export class WhatsAppService {
     }
   }
 
-  async sendMedia(remoteJid: string, mediaPath: string, type: 'audio' | 'video' | 'image') {
+  async sendMedia(remoteJid: string, mediaPath: string, type: 'audio' | 'video' | 'image', quotedMsgId?: string) {
     const mediaBuffer = fs.readFileSync(mediaPath);
     const base64 = mediaBuffer.toString('base64');
 
     try {
-      await axios.post(`${this.baseUrl}/message/sendMedia/${this.instance}`, {
+      const payload: any = {
         number: remoteJid,
         mediatype: type,
         mimetype: type === 'audio' ? 'audio/mpeg' : (type === 'image' ? 'image/jpeg' : 'video/mp4'),
         caption: '',
         media: base64,
         fileName: path.basename(mediaPath)
-      }, { headers: this.headers });
+      };
+
+      if (quotedMsgId) {
+        payload.quoted = {
+          key: {
+            id: quotedMsgId
+          }
+        };
+      }
+
+      const response = await axios.post(`${this.baseUrl}/message/sendMedia/${this.instance}`, payload, { headers: this.headers });
+      return response.data;
     } catch (error: any) {
       console.error('Error sending media:', error.response?.data || error.message);
       throw new Error('Falha ao enviar áudio no WhatsApp');
+    }
+  }
+
+  async sendReaction(remoteJid: string, messageId: string, emoji: string, fromMe: boolean = true) {
+    try {
+      await axios.post(`${this.baseUrl}/message/sendReaction/${this.instance}`, {
+        key: {
+          remoteJid: remoteJid,
+          fromMe: fromMe,
+          id: messageId
+        },
+        reaction: emoji
+      }, { headers: this.headers });
+    } catch (error: any) {
+      console.error('Error sending reaction:', error.response?.data || error.message);
     }
   }
 

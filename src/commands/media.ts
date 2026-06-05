@@ -117,7 +117,14 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
           throw new Error('Arquivo de áudio vazio');
         }
 
-        await whatsapp.sendMedia(msg.remoteJid, tempPath, 'audio');
+        const sendRes = await whatsapp.sendMedia(msg.remoteJid, tempPath, 'audio', msg.id);
+        const sentMsgId = sendRes?.key?.id || sendRes?.message?.key?.id || sendRes?.id;
+        if (sentMsgId) {
+          console.log(`[MEDIA] Áudio enviado com sucesso (ID: ${sentMsgId}). Reagindo com 🕺...`);
+          await whatsapp.sendReaction(msg.remoteJid, sentMsgId, '🕺', true);
+        } else {
+          console.warn('[MEDIA] Áudio enviado, mas o ID da mensagem não pôde ser recuperado para a reação.');
+        }
       } catch (error: unknown) {
         console.error('Music Error:', error);
         const message = error instanceof Error ? error.message : String(error);
