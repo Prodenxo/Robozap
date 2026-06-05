@@ -130,7 +130,7 @@ function shellQuote (value: string): string {
 
 function buildFormatArgs (kind: DownloadKind): string {
   if (kind === 'audio') {
-    return '-f "bestaudio/best" -x --audio-format mp3 --audio-quality 0'
+    return '-f "bestaudio/best"'
   }
   return '-f "bestvideo+bestaudio/best" --merge-output-format mp4'
 }
@@ -210,6 +210,8 @@ export class MediaService {
         ? `--proxy ${shellQuote(process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '')}`
         : ''
 
+      const targetPath = kind === 'audio' ? outputPath + '.raw' : outputPath
+
       const command = [
         'yt-dlp',
         '--js-runtimes deno',
@@ -220,7 +222,7 @@ export class MediaService {
         '--no-check-certificates',
         shellQuote(url),
         '-o',
-        shellQuote(outputPath)
+        shellQuote(targetPath)
       ].filter(Boolean).join(' ')
 
       console.log(`[YT-DLP] Tentativa (${strategy.name}): ${url}`)
@@ -228,13 +230,27 @@ export class MediaService {
       try {
         await execAsync(command, { maxBuffer: 10 * 1024 * 1024 })
 
-        if (fs.existsSync(outputPath)) {
+        if (fs.existsSync(targetPath)) {
+          if (kind === 'audio') {
+            console.log(`[YT-DLP] Sucesso no download bruto. Convertendo para MP3...`)
+            const convertCommand = `ffmpeg -y -i ${shellQuote(targetPath)} -vn -acodec libmp3lame -q:a 2 ${shellQuote(outputPath)}`
+            await execAsync(convertCommand)
+            
+            if (fs.existsSync(targetPath)) {
+              fs.unlinkSync(targetPath)
+            }
+          }
+
           console.log(`[YT-DLP] Sucesso com estratégia: ${strategy.name}`)
           return
         }
 
         lastError = new Error('O arquivo não foi gerado após o download.')
       } catch (error: unknown) {
+        if (kind === 'audio' && fs.existsSync(targetPath)) {
+          try { fs.unlinkSync(targetPath) } catch {}
+        }
+
         const message =
           error instanceof Error ? error.message : String(error)
         console.error(`[YT-DLP] Falha (${strategy.name}):`, message)
