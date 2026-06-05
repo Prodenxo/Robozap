@@ -1,11 +1,12 @@
 import { WhatsAppService } from '../services/whatsapp';
 import { prisma } from '../services/database';
 import { botTexts } from '../config/texts';
+import { LidMapService } from '../services/lidMap';
 
 const whatsapp = new WhatsAppService();
 
 export const handleSocialCommands = async (command: string, args: string[], msg: any) => {
-  const userJid = msg.participant;
+  const userJid = LidMapService.get(msg.participant) || msg.participant;
 
   switch (command) {
     case 'radio':

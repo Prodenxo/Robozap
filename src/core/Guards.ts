@@ -1,4 +1,5 @@
 import { prisma } from '../services/database';
+import { LidMapService } from '../services/lidMap';
 
 export class PermissionGuard {
   static ROLES = {
@@ -13,10 +14,11 @@ export class PermissionGuard {
    * Verifica se o usuário tem o cargo mínimo para o comando
    */
   static async canExecute(userJid: string, groupJid: string, minRole: number) {
-    console.log(`[GUARD DEBUG] canExecute - userJid: ${userJid}, groupJid: ${groupJid}, minRole: ${minRole}`);
+    const resolvedJid = LidMapService.get(userJid) || userJid;
+    console.log(`[GUARD DEBUG] canExecute - userJid: ${userJid} (resolved: ${resolvedJid}), groupJid: ${groupJid}, minRole: ${minRole}`);
 
     const participant = await prisma.groupParticipant.findFirst({
-      where: { userJid, group: { jid: groupJid } }
+      where: { userJid: resolvedJid, group: { jid: groupJid } }
     });
 
     if (!participant) {

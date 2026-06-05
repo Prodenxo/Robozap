@@ -1,11 +1,13 @@
 import { WhatsAppService } from '../services/whatsapp';
 import { botTexts } from '../config/texts';
 import { prisma } from '../services/database';
+import { LidMapService } from '../services/lidMap';
 
 const whatsapp = new WhatsAppService();
 
 export const handleUserCommands = async (command: string, args: string[], msg: any) => {
-  const userJid = msg.participant || msg.remoteJid;
+  const rawJid = msg.participant || msg.remoteJid;
+  const userJid = LidMapService.get(rawJid) || rawJid;
   const isADM = msg.remoteJid.endsWith('@g.us');
 
   switch (command) {
