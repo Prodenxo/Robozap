@@ -72,7 +72,7 @@ export const processMessage = async (msg: MessageData) => {
           const hasPermission = await PermissionGuard.canExecute(msg.participant, msg.remoteJid, PermissionGuard.ROLES.ADM);
           if (!hasPermission) {
             console.log(`[ROUTER] Modo Admin ativo. Ignorando comando .${command} de não-admin: ${msg.participant}`);
-            await whatsapp.sendMessage(msg.remoteJid, "⚠️ *Modo Admin Ativo:* Apenas administradores do grupo podem usar este bot no momento.");
+            await whatsapp.sendReaction(msg.remoteJid, msg.id, "❌", false);
             return;
           }
         }
