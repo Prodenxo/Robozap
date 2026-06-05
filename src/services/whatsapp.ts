@@ -26,24 +26,45 @@ export class WhatsAppService {
 
   async sendMessage(remoteJid: string, text: string, mentions: string[] = []) {
     try {
-      const resolvedMentions = await Promise.all(
-        mentions.map(async (m) => {
-          if (typeof m === 'string') {
-            const resolved = await this.resolveJid(m);
-            if (!resolved.includes('@')) {
-              return `${resolved}@s.whatsapp.net`;
-            }
-            return resolved;
-          }
-          return m;
-        })
-      );
+      const finalMentions: string[] = [];
+      let updatedText = text;
 
-      const uniqueMentions = Array.from(new Set(resolvedMentions.filter(Boolean)));
+      for (const m of mentions) {
+        if (typeof m !== 'string') continue;
+        
+        let jid = m;
+        if (!jid.includes('@')) {
+          jid = `${jid}@s.whatsapp.net`;
+        }
+
+        if (jid.endsWith('@lid')) {
+          finalMentions.push(jid);
+          const realJid = LidMapService.get(jid);
+          if (realJid) {
+            const realNum = realJid.split('@')[0];
+            const lidNum = jid.split('@')[0];
+            updatedText = updatedText.replace(new RegExp(`@${realNum}\\b`, 'g'), `@${lidNum}`);
+          }
+        } else if (jid.endsWith('@s.whatsapp.net')) {
+          const lid = LidMapService.getLid(jid);
+          if (lid) {
+            finalMentions.push(lid);
+            const realNum = jid.split('@')[0];
+            const lidNum = lid.split('@')[0];
+            updatedText = updatedText.replace(new RegExp(`@${realNum}\\b`, 'g'), `@${lidNum}`);
+          } else {
+            finalMentions.push(jid);
+          }
+        } else {
+          finalMentions.push(jid);
+        }
+      }
+
+      const uniqueMentions = Array.from(new Set(finalMentions.filter(Boolean)));
 
       const payload: any = {
         number: remoteJid,
-        text: text,
+        text: updatedText,
         options: {
           linkPreview: false
         }
@@ -65,10 +86,18 @@ export class WhatsAppService {
   // --- ADMIN ACTIONS (RETORNANDO O NÚMERO REAL) ---
   async groupUpdateParticipant(groupJid: string, action: 'add' | 'remove' | 'promote' | 'demote', participants: string[]) {
     try {
+      const resolvedParticipants = participants.map(p => {
+        if (typeof p === 'string' && p.endsWith('@s.whatsapp.net')) {
+          const lid = LidMapService.getLid(p);
+          return lid || p;
+        }
+        return p;
+      });
+
       const response = await axios.post(`${this.baseUrl}/group/updateParticipant/${this.instance}`, {
         groupJid: groupJid,
         action: action,
-        participants: participants
+        participants: resolvedParticipants
       }, { headers: this.headers });
 
       // O "Pulo do Gato": Pegar o phone_number que o WhatsApp resolveu
@@ -79,9 +108,21 @@ export class WhatsAppService {
       if (typeof realJid === 'string' && !realJid.includes('@')) {
           realJid = `${realJid}@s.whatsapp.net`;
       }
+
+      // Se realJid for LID, tenta pegar do cache
+      if (typeof realJid === 'string' && realJid.includes('@lid')) {
+        const cachedReal = LidMapService.get(realJid);
+        if (cachedReal) {
+          realJid = cachedReal;
+        }
+      }
       
-      console.log(`[EVOLUTION RESOLVED] LID: ${participants[0]} -> Real JID: ${realJid}`);
-      LidMapService.set(participants[0], realJid);
+      console.log(`[EVOLUTION RESOLVED] LID: ${resolvedParticipants[0]} -> Real JID: ${realJid}`);
+      
+      if (typeof resolvedParticipants[0] === 'string' && resolvedParticipants[0].includes('@lid') && typeof realJid === 'string' && realJid.includes('@s.whatsapp.net')) {
+        LidMapService.set(resolvedParticipants[0], realJid);
+      }
+
       return realJid;
     } catch (error: any) {
       console.error(`[EVOLUTION ERROR] ${action}:`, error.response?.data || error.message);

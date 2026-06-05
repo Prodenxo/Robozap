@@ -29,6 +29,18 @@ export class LidMapService {
     return map[lid] || null;
   }
 
+  static getLid(realJid: string): string | null {
+    if (!realJid || !realJid.includes('@s.whatsapp.net')) return null;
+    const map = this.loadMap();
+    for (const [lid, mappedRealJid] of Object.entries(map)) {
+      if (mappedRealJid === realJid) {
+        return lid;
+      }
+    }
+    return null;
+  }
+
+
   static set(lid: string, realJid: string) {
     if (!lid || !lid.includes('@lid') || !realJid || !realJid.includes('@s.whatsapp.net')) return;
     const map = this.loadMap();
