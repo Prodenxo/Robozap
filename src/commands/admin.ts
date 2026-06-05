@@ -51,8 +51,14 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
     case 'desban':
     case 'desbanir':
       const resolvedAdd = await whatsapp.groupUpdateParticipant(msg.remoteJid, 'add', [targetJid!]);
-      const mentionTextAdd = await getMentionText(resolvedAdd);
-      await whatsapp.sendMessage(msg.remoteJid, `✅ Trouxe o ${mentionTextAdd} de volta pro jogo!`, [resolvedAdd]);
+      if (resolvedAdd.startsWith('invite:')) {
+        const inviteCode = resolvedAdd.split(':')[1];
+        const mentionTextAdd = await getMentionText(targetJid!);
+        await whatsapp.sendMessage(msg.remoteJid, `⚠️ Não consegui adicionar ${mentionTextAdd} diretamente devido às configurações de privacidade dele ou por ter sido removido recentemente.\n\nEnvia o convite no privado dele ou manda ele entrar por aqui: https://chat.whatsapp.com/invite/${inviteCode}`, [targetJid!]);
+      } else {
+        const mentionTextAdd = await getMentionText(resolvedAdd);
+        await whatsapp.sendMessage(msg.remoteJid, `✅ Trouxe o ${mentionTextAdd} de volta pro jogo!`, [resolvedAdd]);
+      }
       return true;
 
     case 'demitir':

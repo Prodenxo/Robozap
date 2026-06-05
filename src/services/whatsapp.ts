@@ -135,10 +135,35 @@ export class WhatsAppService {
         LidMapService.set(resolvedParticipants[0], realJid);
       }
 
+      // Se for a ação de 'add', e o status for 403 (ou qualquer um diferente de 200/201), ou se o WhatsApp retornou um código de convite:
+      const status = String(resData?.status || '');
+      const inviteCode = resData?.content?.attrs?.code;
+      if (action === 'add' && (status && status !== '200' && status !== '201' || inviteCode)) {
+        if (inviteCode) {
+          return `invite:${inviteCode}`;
+        }
+        const fallbackCode = await this.getGroupInviteCode(groupJid);
+        if (fallbackCode) {
+          return `invite:${fallbackCode}`;
+        }
+      }
+
       return realJid;
     } catch (error: any) {
       console.error(`[EVOLUTION ERROR] ${action}:`, error.response?.data || error.message);
       return participants[0];
+    }
+  }
+
+  async getGroupInviteCode(groupJid: string): Promise<string | null> {
+    try {
+      const response = await axios.get(`${this.baseUrl}/group/inviteCode/${this.instance}?groupJid=${groupJid}`, {
+        headers: this.headers
+      });
+      return response.data?.code || response.data?.inviteCode || response.data || null;
+    } catch (error: any) {
+      console.error('[WHATSAPP] Error fetching group invite code:', error.response?.data || error.message);
+      return null;
     }
   }
 
