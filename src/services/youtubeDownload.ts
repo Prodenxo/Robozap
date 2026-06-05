@@ -11,6 +11,13 @@ const execAsync = promisify(exec);
 const INSTANCE_CACHE_MS = 60 * 60 * 1000;
 
 const FALLBACK_PIPED_BASES = [
+  'https://api.piped.private.coffee',
+  'https://piped-api.lunar.icu',
+  'https://piped-api.cfe.re',
+  'https://ytapi.dc09.ru',
+  'https://yapi.vyper.me',
+  'https://pipedapi.colinslegacy.com',
+  'https://pipedapi.rivo.lol',
   'https://pipedapi.leptons.xyz',
   'https://piped-api.garudalinux.org',
   'https://pipedapi.in.projectsegfau.lt',
@@ -24,9 +31,11 @@ const FALLBACK_PIPED_BASES = [
 ];
 
 const FALLBACK_INVIDIOUS_BASES = [
-  'https://invidious.fdn.fr',
-  'https://invidious.protokolla.fi',
-  'https://invidious.dhusch.de'
+  'https://inv.nadeko.net',
+  'https://invidious.nerdvpn.de',
+  'https://invidious.projectsegfau.lt',
+  'https://invidious.privacydev.net',
+  'https://invidious.lunar.icu'
 ];
 
 let pipedInstancesCache: { urls: string[]; fetchedAt: number } | null = null;
@@ -165,7 +174,7 @@ async function fetchHealthyPipedInstances (): Promise<string[]> {
 
   try {
     const { data } = await axios.get(
-      'https://piped-instances.kavinrocks.dev/',
+      'https://piped-instances.kavin.rocks/',
       { timeout: 12000 }
     );
 
