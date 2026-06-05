@@ -35,6 +35,14 @@ interface MessageData {
 export const processMessage = async (msg: MessageData) => {
   // Resolve LID (ID gigante) para JID real
   msg.participant = await whatsapp.resolveJid(msg.participant);
+  if (msg.quotedParticipant) {
+    msg.quotedParticipant = await whatsapp.resolveJid(msg.quotedParticipant);
+  }
+  if (msg.mentionedJid && msg.mentionedJid.length > 0) {
+    msg.mentionedJid = await Promise.all(
+      msg.mentionedJid.map(async (jid) => await whatsapp.resolveJid(jid))
+    );
+  }
 
   // Capture Stats for the group
   if (msg.remoteJid.endsWith('@g.us')) {

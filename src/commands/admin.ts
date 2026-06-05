@@ -107,7 +107,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       });
 
       const advCount = part?.warningsCount || 1;
-      const mentionList = [targetJid, rawTargetJid].filter(Boolean) as string[];
+      const mentionList = [targetJid].filter(Boolean) as string[];
 
       if (advCount >= 2) {
           await whatsapp.sendMessage(msg.remoteJid, `⚠️ ${mentionTextAdv} atingiu o limite de *2 advertências* e será removido. Vala! 🧹`, mentionList);

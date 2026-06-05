@@ -26,12 +26,20 @@ export class WhatsAppService {
 
   async sendMessage(remoteJid: string, text: string, mentions: string[] = []) {
     try {
-      const normalizedMentions = mentions.map(m => {
-        if (typeof m === 'string' && !m.includes('@')) {
-          return `${m}@s.whatsapp.net`;
-        }
-        return m;
-      });
+      const resolvedMentions = await Promise.all(
+        mentions.map(async (m) => {
+          if (typeof m === 'string') {
+            const resolved = await this.resolveJid(m);
+            if (!resolved.includes('@')) {
+              return `${resolved}@s.whatsapp.net`;
+            }
+            return resolved;
+          }
+          return m;
+        })
+      );
+
+      const uniqueMentions = Array.from(new Set(resolvedMentions.filter(Boolean)));
 
       const payload: any = {
         number: remoteJid,
@@ -41,10 +49,10 @@ export class WhatsAppService {
         }
       };
 
-      if (normalizedMentions.length > 0) {
+      if (uniqueMentions.length > 0) {
         payload.options.mentions = {
           everyOne: false,
-          mentioned: normalizedMentions
+          mentioned: uniqueMentions
         };
       }
 
