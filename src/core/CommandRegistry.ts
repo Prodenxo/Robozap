@@ -139,6 +139,7 @@ export const COMMAND_MAP: Record<string, Function> = {
   'avisar': handleAdminCommands,
 
   // TESTES
+  'debug': handleGeneralCommands,
   'teste': handleGeneralCommands,
   'bomdia': handleGeneralCommands,
   'boatarde': handleGeneralCommands,
