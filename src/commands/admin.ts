@@ -166,6 +166,9 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
     }
 
     case 'ativos': {
+      // Sincroniza participantes para popular o mapa LID→JID real
+      await whatsapp.syncGroupParticipants(msg.remoteJid);
+
       const group = await (prisma as any).group.findUnique({
         where: { jid: msg.remoteJid }
       });
@@ -189,7 +192,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         }
       });
 
-      // Consolida JIDs reais e LIDs
+      // Passo 1: Consolida JIDs reais e LIDs
       const combinedMap = new Map<string, number>();
       for (const p of rawParticipants) {
         let canonicalJid = p.userJid;
@@ -203,8 +206,31 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         combinedMap.set(canonicalJid, (combinedMap.get(canonicalJid) || 0) + count);
       }
 
+      // Passo 2: Consolidação reversa - merge LIDs não resolvidos com JIDs reais existentes
+      const finalMap = new Map<string, number>();
+      for (const [jid, count] of combinedMap.entries()) {
+        // Se é um JID real, verifica se há algum LID não resolvido no mapa que aponta para ele
+        if (jid.endsWith('@s.whatsapp.net')) {
+          const lid = LidMapService.getLid(jid);
+          if (lid && combinedMap.has(lid)) {
+            // O LID ficou como entrada separada — soma aqui e marca para pular
+            finalMap.set(jid, count + (combinedMap.get(lid) || 0));
+            continue;
+          }
+        }
+        // Se é um LID que já foi mergeado no passo acima (via reversa), pula
+        if (jid.endsWith('@lid')) {
+          const real = LidMapService.get(jid);
+          if (real && finalMap.has(real)) {
+            continue; // Já foi somado quando processamos o JID real
+          }
+        }
+        // Soma normalmente (pode ser LID sem match ou JID real sem duplicata)
+        finalMap.set(jid, (finalMap.get(jid) || 0) + count);
+      }
+
       // Converte para array, ordena por contagem e pega os 10 primeiros
-      const sortedParticipants = Array.from(combinedMap.entries())
+      const sortedParticipants = Array.from(finalMap.entries())
         .map(([userJid, count]) => ({ userJid, count }))
         .sort((a, b) => b.count - a.count)
         .slice(0, 10);
