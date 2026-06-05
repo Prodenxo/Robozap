@@ -107,9 +107,14 @@ export class MediaService {
         continue
       }
 
+      const proxyArg = process.env.HTTP_PROXY || process.env.HTTPS_PROXY
+        ? `--proxy ${shellQuote(process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '')}`
+        : ''
+
       const command = [
         'yt-dlp',
         '--js-runtimes deno',
+        proxyArg,
         strategy.extraArgs,
         formatArgs,
         '--no-playlist',
@@ -117,7 +122,7 @@ export class MediaService {
         shellQuote(url),
         '-o',
         shellQuote(outputPath)
-      ].join(' ')
+      ].filter(Boolean).join(' ')
 
       console.log(`[YT-DLP] Tentativa (${strategy.name}): ${url}`)
 
