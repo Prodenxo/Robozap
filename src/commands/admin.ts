@@ -2,6 +2,7 @@ import { WhatsAppService } from '../services/whatsapp';
 import { botTexts } from '../config/texts';
 import { prisma } from '../services/database';
 import { PermissionGuard } from '../core/Guards';
+import { LidMapService } from '../services/lidMap';
 
 const whatsapp = new WhatsAppService();
 
@@ -176,7 +177,8 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-      const topParticipants = await (prisma as any).messageLog.groupBy({
+      // Buscar todos os logs de mensagens agrupados
+      const rawParticipants = await (prisma as any).messageLog.groupBy({
         by: ['userJid'],
         where: {
           groupId: group.id,
@@ -184,27 +186,40 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         },
         _count: {
           messageId: true
-        },
-        orderBy: {
-          _count: {
-            messageId: 'desc'
-          }
-        },
-        take: 10
+        }
       });
 
-      if (topParticipants.length === 0) {
+      // Consolida JIDs reais e LIDs
+      const combinedMap = new Map<string, number>();
+      for (const p of rawParticipants) {
+        let canonicalJid = p.userJid;
+        if (p.userJid.endsWith('@lid')) {
+          const real = LidMapService.get(p.userJid);
+          if (real) {
+            canonicalJid = real;
+          }
+        }
+        const count = p._count.messageId;
+        combinedMap.set(canonicalJid, (combinedMap.get(canonicalJid) || 0) + count);
+      }
+
+      // Converte para array, ordena por contagem e pega os 10 primeiros
+      const sortedParticipants = Array.from(combinedMap.entries())
+        .map(([userJid, count]) => ({ userJid, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10);
+
+      if (sortedParticipants.length === 0) {
         await whatsapp.sendMessage(msg.remoteJid, "📈 Nenhuma atividade registrada no grupo nos últimos 7 dias.");
         return true;
       }
 
-      const list = topParticipants.map((p: any) => p.userJid);
+      const list = sortedParticipants.map(p => p.userJid);
       let text = `🏆 *RANKING DE ATIVIDADE - TOP 10 (ÚLTIMOS 7 DIAS)* 🏆\n\n`;
       
-      topParticipants.forEach((p: any, idx: number) => {
+      sortedParticipants.forEach((p, idx) => {
         const number = p.userJid.split('@')[0];
-        const count = p._count.messageId;
-        text += `${idx + 1}º. @${number} — *${count} mensagens*\n`;
+        text += `${idx + 1}º. @${number} — *${p.count} mensagens*\n`;
       });
 
       await whatsapp.sendMessage(msg.remoteJid, text, list);
@@ -231,32 +246,72 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         select: { userJid: true }
       });
 
+      // Agrupa logs de mensagens ativos nos últimos 7 dias
       const activeLogs = await (prisma as any).messageLog.groupBy({
         by: ['userJid'],
         where: {
           groupId: group.id,
           createdAt: { gte: sevenDaysAgo }
+        },
+        _count: {
+          messageId: true
         }
       });
-      const activeJids = new Set(activeLogs.map((l: any) => l.userJid));
 
-      const inactiveUsers = allParticipants.filter((p: any) => !activeJids.has(p.userJid));
+      // Consolidar contagens por JID canônico
+      const countMap = new Map<string, number>();
+      for (const log of activeLogs) {
+        let canonicalJid = log.userJid;
+        if (log.userJid.endsWith('@lid')) {
+          const real = LidMapService.get(log.userJid);
+          if (real) {
+            canonicalJid = real;
+          }
+        }
+        const count = log._count.messageId;
+        countMap.set(canonicalJid, (countMap.get(canonicalJid) || 0) + count);
+      }
+
+      // Filtrar membros com menos de 50 mensagens
+      const inactiveUsers: { userJid: string, count: number }[] = [];
+      for (const p of allParticipants) {
+        let canonicalJid = p.userJid;
+        if (p.userJid.endsWith('@lid')) {
+          const real = LidMapService.get(p.userJid);
+          if (real) {
+            canonicalJid = real;
+          }
+        }
+
+        // Evitar duplicatas de participantes
+        if (inactiveUsers.some(u => u.userJid === canonicalJid)) {
+          continue;
+        }
+
+        const count = countMap.get(canonicalJid) || 0;
+        if (count < 50) {
+          inactiveUsers.push({ userJid: canonicalJid, count });
+        }
+      }
+
+      // Ordenar os inativos por quantidade de mensagens crescente
+      inactiveUsers.sort((a, b) => a.count - b.count);
 
       if (inactiveUsers.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, "🎉 *Nenhum inativo!* Todos os membros enviaram pelo menos uma mensagem nos últimos 7 dias.");
+        await whatsapp.sendMessage(msg.remoteJid, "🎉 *Nenhum inativo!* Todos os membros enviaram 50 ou mais mensagens nos últimos 7 dias.");
         return true;
       }
 
       const displayLimit = 30;
       const displayUsers = inactiveUsers.slice(0, displayLimit);
-      const list = displayUsers.map((u: any) => u.userJid);
+      const list = displayUsers.map(u => u.userJid);
 
-      let text = `👻 *MEMBROS INATIVOS (SEM MENSAGENS HÁ 7 DIAS)* 👻\n`;
+      let text = `👻 *MEMBROS INATIVOS (< 50 MENSAGENS HÁ 7 DIAS)* 👻\n`;
       text += `Total de inativos: ${inactiveUsers.length} membros.\n\n`;
 
-      displayUsers.forEach((u: any, idx: number) => {
+      displayUsers.forEach((u, idx) => {
         const number = u.userJid.split('@')[0];
-        text += `${idx + 1}. @${number}\n`;
+        text += `${idx + 1}. @${number} — *${u.count} mensagens*\n`;
       });
 
       if (inactiveUsers.length > displayLimit) {
