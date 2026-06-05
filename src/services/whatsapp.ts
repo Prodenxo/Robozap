@@ -32,12 +32,22 @@ export class WhatsAppService {
         return m;
       });
 
-      await axios.post(`${this.baseUrl}/message/sendText/${this.instance}`, {
+      const payload: any = {
         number: remoteJid,
         text: text,
-        linkPreview: false,
-        mentions: normalizedMentions
-      }, { headers: this.headers });
+        options: {
+          linkPreview: false
+        }
+      };
+
+      if (normalizedMentions.length > 0) {
+        payload.options.mentions = {
+          everyOne: false,
+          mentioned: normalizedMentions
+        };
+      }
+
+      await axios.post(`${this.baseUrl}/message/sendText/${this.instance}`, payload, { headers: this.headers });
     } catch (error: any) {
       console.error('Error sending message:', error.response?.data || error.message);
     }
