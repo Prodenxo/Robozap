@@ -79,7 +79,6 @@ export class WhatsAppService {
       if (typeof realJid === 'string' && !realJid.includes('@')) {
           realJid = `${realJid}@s.whatsapp.net`;
       }
-      realJid = this.normalizeJid(realJid);
       
       console.log(`[EVOLUTION RESOLVED] LID: ${participants[0]} -> Real JID: ${realJid}`);
       LidMapService.set(participants[0], realJid);
@@ -256,11 +255,10 @@ export class WhatsAppService {
               
               if (realJidCandidate) {
                   const lidCandidate = fieldsToCheck.find(f => typeof f === 'string' && f.includes('@lid'));
-                  const normJid = this.normalizeJid(realJidCandidate);
                   if (lidCandidate) {
-                      LidMapService.set(lidCandidate, normJid);
+                      LidMapService.set(lidCandidate, realJidCandidate);
                   }
-                  jid = normJid;
+                  jid = realJidCandidate;
               } else {
                   // 2. Se for LID mas achou um número sem sufixo que não seja o próprio ID do LID
                   const rawNum = fieldsToCheck.find(f => {
@@ -360,39 +358,16 @@ export class WhatsAppService {
     return number;
   }
 
-  normalizeJid(jid: string): string {
-    if (!jid) return jid;
-    if (jid.includes('@lid')) return jid;
-
-    const [phone, domain] = jid.split('@');
-    const dom = domain || 's.whatsapp.net';
-
-    if (phone.startsWith('55') && phone.length === 13) {
-      const country = '55';
-      const ddd = phone.substring(2, 4);
-      const nine = phone.charAt(4);
-      const rest = phone.substring(5);
-      if (nine === '9') {
-        return `${country}${ddd}${rest}@${dom}`;
-      }
-    }
-    return jid.includes('@') ? jid : `${phone}@${dom}`;
-  }
-
   /**
    * Converte um LID (ID gigante) para um JID de número real se necessário
    */
   async resolveJid(jid: string): Promise<string> {
-    if (!jid) return jid;
-
-    if (!jid.includes('@lid')) {
-      return this.normalizeJid(jid);
-    }
+    if (!jid || !jid.includes('@lid')) return jid;
 
     const cached = LidMapService.get(jid);
     if (cached) {
         console.log(`[DEBUG] LID resolvido via cache local: ${jid} -> ${cached}`);
-        return this.normalizeJid(cached);
+        return cached;
     }
 
     console.log(`[DEBUG] Tentando resolver LID: ${jid}`);
@@ -403,10 +378,9 @@ export class WhatsAppService {
           const fields = [contact.phoneNumber, contact.phone_number, contact.number, contact.jid, contact.id, contact.realJid];
           const realJid = fields.find(f => typeof f === 'string' && f.includes('@s.whatsapp.net'));
           if (realJid) {
-              const normalized = this.normalizeJid(realJid);
-              console.log(`[DEBUG] LID Resolvido com sucesso (realJid): ${jid} -> ${normalized}`);
-              LidMapService.set(jid, normalized);
-              return normalized;
+              console.log(`[DEBUG] LID Resolvido com sucesso (realJid): ${jid} -> ${realJid}`);
+              LidMapService.set(jid, realJid);
+              return realJid;
           }
           
           const rawNum = fields.find(f => {
@@ -419,7 +393,7 @@ export class WhatsAppService {
           if (rawNum) {
               const num = typeof rawNum === 'string' ? rawNum.split('@')[0] : String(rawNum);
               if (/^\d{8,15}$/.test(num)) {
-                  const formattedJid = this.normalizeJid(`${num}@s.whatsapp.net`);
+                  const formattedJid = `${num}@s.whatsapp.net`;
                   console.log(`[DEBUG] LID Resolvido com sucesso (rawNum): ${jid} -> ${formattedJid}`);
                   LidMapService.set(jid, formattedJid);
                   return formattedJid;
