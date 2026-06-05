@@ -69,6 +69,8 @@ export const processMessage = async (msg: MessageData) => {
       if (currentSettings && currentSettings.adminMode === true) {
         const isEssential = ['menu', 'vencimento', 'ajuda', 'filhote.ajuda'].includes(command);
         if (!isEssential) {
+          // Sincroniza participantes para atualizar cargos e LIDs antes de checar as permissões
+          await whatsapp.syncGroupParticipants(msg.remoteJid);
           const hasPermission = await PermissionGuard.canExecute(msg.participant, msg.remoteJid, PermissionGuard.ROLES.ADM);
           if (!hasPermission) {
             console.log(`[ROUTER] Modo Admin ativo. Ignorando comando .${command} de não-admin: ${msg.participant}`);
