@@ -192,45 +192,41 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         }
       });
 
-      // Passo 1: Consolida JIDs reais e LIDs
-      const combinedMap = new Map<string, number>();
-      for (const p of rawParticipants) {
-        let canonicalJid = p.userJid;
-        if (p.userJid.endsWith('@lid')) {
-          const real = LidMapService.get(p.userJid);
-          if (real) {
-            canonicalJid = real;
-          }
+      // Carrega mapa LID completo do disco para máxima cobertura
+      const fs = require('fs');
+      const pathMod = require('path');
+      let fullLidMap: Record<string, string> = {};
+      try {
+        const mapPath = pathMod.join(process.cwd(), 'lid_map.json');
+        if (fs.existsSync(mapPath)) {
+          fullLidMap = JSON.parse(fs.readFileSync(mapPath, 'utf-8'));
         }
-        const count = p._count.messageId;
-        combinedMap.set(canonicalJid, (combinedMap.get(canonicalJid) || 0) + count);
+      } catch (e) {}
+
+      // Criar mapa reverso: realJid -> lid  
+      const reverseLidMap: Record<string, string> = {};
+      for (const [lid, real] of Object.entries(fullLidMap)) {
+        reverseLidMap[real as string] = lid;
       }
 
-      // Passo 2: Consolidação reversa - merge LIDs não resolvidos com JIDs reais existentes
-      const finalMap = new Map<string, number>();
-      for (const [jid, count] of combinedMap.entries()) {
-        // Se é um JID real, verifica se há algum LID não resolvido no mapa que aponta para ele
-        if (jid.endsWith('@s.whatsapp.net')) {
-          const lid = LidMapService.getLid(jid);
-          if (lid && combinedMap.has(lid)) {
-            // O LID ficou como entrada separada — soma aqui e marca para pular
-            finalMap.set(jid, count + (combinedMap.get(lid) || 0));
-            continue;
-          }
-        }
-        // Se é um LID que já foi mergeado no passo acima (via reversa), pula
+      // Função para obter JID canônico (sempre prefere o JID real)
+      const getCanonical = (jid: string): string => {
         if (jid.endsWith('@lid')) {
-          const real = LidMapService.get(jid);
-          if (real && finalMap.has(real)) {
-            continue; // Já foi somado quando processamos o JID real
-          }
+          return fullLidMap[jid] || jid;
         }
-        // Soma normalmente (pode ser LID sem match ou JID real sem duplicata)
-        finalMap.set(jid, (finalMap.get(jid) || 0) + count);
+        return jid;
+      };
+
+      // Consolida usando o mapa completo
+      const consolidatedMap = new Map<string, number>();
+      for (const p of rawParticipants) {
+        const canonical = getCanonical(p.userJid);
+        const count = p._count.messageId;
+        consolidatedMap.set(canonical, (consolidatedMap.get(canonical) || 0) + count);
       }
 
       // Converte para array, ordena por contagem e pega os 10 primeiros
-      const sortedParticipants = Array.from(finalMap.entries())
+      const sortedParticipants = Array.from(consolidatedMap.entries())
         .map(([userJid, count]) => ({ userJid, count }))
         .sort((a, b) => b.count - a.count)
         .slice(0, 10);
