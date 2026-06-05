@@ -76,8 +76,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         participants.map(async (u: any) => await whatsapp.resolveJid(u.userJid))
       );
       
-      const mentionsText = list.map((jid: string) => `@${jid.split('@')[0]}`).join(' ');
-      const text = `📢 *FILHOTE CHAMANDO A TROPA!* 📢\n\n${args.join(' ') || 'Bora reagir, bando de desocupado!'}\n\n${mentionsText}`;
+      const text = `📢 *FILHOTE CHAMANDO A TROPA!* 📢\n\n${args.join(' ') || 'Bora reagir, bando de desocupado!'}`;
       
       await whatsapp.sendMessage(msg.remoteJid, text, list);
       return true;
