@@ -71,6 +71,10 @@ export class WhatsAppService {
       };
 
       if (uniqueMentions.length > 0) {
+        // Envia nos formatos alternativos/legados no nível da raiz para garantir compatibilidade entre versões da API
+        payload.mentions = uniqueMentions;
+        payload.mentioned = uniqueMentions;
+
         payload.options.mentions = {
           everyOne: false,
           mentioned: uniqueMentions
