@@ -42,11 +42,38 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
 
     case 'remover':
     case 'banir':
-    case 'ban':
+    case 'ban': {
+      const fs = require('fs');
+      const path = require('path');
+
+      // 1. Enviar figurinha de ban se existir
+      const stickerPath = path.join(process.cwd(), 'assets', 'ban_sticker.png');
+      if (fs.existsSync(stickerPath)) {
+        try {
+          await whatsapp.sendSticker(msg.remoteJid, fs.readFileSync(stickerPath));
+        } catch (e) {
+          console.error('[BAN] Erro ao enviar figurinha:', e);
+        }
+      }
+
+      // 2. Enviar áudio de ban se existir
+      const audioPath = path.join(process.cwd(), 'assets', 'ban_audio.mp3');
+      if (fs.existsSync(audioPath)) {
+        try {
+          await whatsapp.sendMedia(msg.remoteJid, audioPath, 'audio');
+        } catch (e) {
+          console.error('[BAN] Erro ao enviar áudio:', e);
+        }
+      }
+
+      // 3. Pequeno delay para garantir o envio das mídias antes do ban
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
       const resolvedBan = await whatsapp.groupUpdateParticipant(msg.remoteJid, 'remove', [targetJid!]);
       const mentionTextBan = await getMentionText(resolvedBan);
       await whatsapp.sendMessage(msg.remoteJid, `🧹 Varri o ${mentionTextBan} daqui. Sem massagem!`, [resolvedBan]);
       return true;
+    }
 
     case 'desban':
     case 'desbanir':
@@ -126,6 +153,28 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
           await whatsapp.sendMessage(msg.remoteJid, `⚠️ ${mentionTextAdv} atingiu o limite de *2 advertências* e será removido. Vala! 🧹`, mentionList);
           
           setTimeout(async () => {
+              const fs = require('fs');
+              const path = require('path');
+
+              // 1. Enviar figurinha de ban se existir
+              const stickerPath = path.join(process.cwd(), 'assets', 'ban_sticker.png');
+              if (fs.existsSync(stickerPath)) {
+                try {
+                  await whatsapp.sendSticker(msg.remoteJid, fs.readFileSync(stickerPath));
+                } catch (e) {}
+              }
+
+              // 2. Enviar áudio de ban se existir
+              const audioPath = path.join(process.cwd(), 'assets', 'ban_audio.mp3');
+              if (fs.existsSync(audioPath)) {
+                try {
+                  await whatsapp.sendMedia(msg.remoteJid, audioPath, 'audio');
+                } catch (e) {}
+              }
+
+              // 3. Pequeno delay para garantir o envio antes da remoção
+              await new Promise(resolve => setTimeout(resolve, 2000));
+
               await whatsapp.groupUpdateParticipant(msg.remoteJid, 'remove', [rawTargetJid || targetJid!]);
               await (prisma as any).groupParticipant.updateMany({
                   where: { OR: [{ userJid: targetJid! }, { userJid: rawTargetJid || undefined }], group: { jid: msg.remoteJid } },
