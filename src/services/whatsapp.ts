@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import { prisma } from './database';
+import { LidMapService } from './lidMap';
 
 dotenv.config();
 
@@ -72,6 +73,7 @@ export class WhatsAppService {
       }
       
       console.log(`[EVOLUTION RESOLVED] LID: ${participants[0]} -> Real JID: ${realJid}`);
+      LidMapService.set(participants[0], realJid);
       return realJid;
     } catch (error: any) {
       console.error(`[EVOLUTION ERROR] ${action}:`, error.response?.data || error.message);
@@ -244,6 +246,10 @@ export class WhatsAppService {
               const realJidCandidate = fieldsToCheck.find(f => typeof f === 'string' && f.includes('@s.whatsapp.net'));
               
               if (realJidCandidate) {
+                  const lidCandidate = fieldsToCheck.find(f => typeof f === 'string' && f.includes('@lid'));
+                  if (lidCandidate) {
+                      LidMapService.set(lidCandidate, realJidCandidate);
+                  }
                   jid = realJidCandidate;
               } else {
                   // 2. Se for LID mas achou um número sem sufixo que não seja o próprio ID do LID
@@ -350,6 +356,12 @@ export class WhatsAppService {
   async resolveJid(jid: string): Promise<string> {
     if (!jid || !jid.includes('@lid')) return jid;
 
+    const cached = LidMapService.get(jid);
+    if (cached) {
+        console.log(`[DEBUG] LID resolvido via cache local: ${jid} -> ${cached}`);
+        return cached;
+    }
+
     console.log(`[DEBUG] Tentando resolver LID: ${jid}`);
     try {
       // Passa o JID completo (incluindo o @lid) para que a Evolution API saiba de qual namespace buscar
@@ -359,6 +371,7 @@ export class WhatsAppService {
           const realJid = fields.find(f => typeof f === 'string' && f.includes('@s.whatsapp.net'));
           if (realJid) {
               console.log(`[DEBUG] LID Resolvido com sucesso (realJid): ${jid} -> ${realJid}`);
+              LidMapService.set(jid, realJid);
               return realJid;
           }
           
@@ -374,6 +387,7 @@ export class WhatsAppService {
               if (/^\d{8,15}$/.test(num)) {
                   const formattedJid = `${num}@s.whatsapp.net`;
                   console.log(`[DEBUG] LID Resolvido com sucesso (rawNum): ${jid} -> ${formattedJid}`);
+                  LidMapService.set(jid, formattedJid);
                   return formattedJid;
               }
           }
