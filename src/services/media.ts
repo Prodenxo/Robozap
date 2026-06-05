@@ -147,6 +147,14 @@ function getStrategies (cookiesPath: string | null): YtDlpStrategy[] {
 
   strategies.push(
     {
+      name: 'web_embedded',
+      extraArgs: '--extractor-args "youtube:player_client=web_embedded"'
+    },
+    {
+      name: 'web_safari',
+      extraArgs: '--extractor-args "youtube:player_client=web_safari"'
+    },
+    {
       name: 'android_vr',
       extraArgs: '--extractor-args "youtube:player_client=android_vr,web"'
     },
@@ -157,6 +165,10 @@ function getStrategies (cookiesPath: string | null): YtDlpStrategy[] {
     {
       name: 'ios',
       extraArgs: '--extractor-args "youtube:player_client=ios,web"'
+    },
+    {
+      name: 'default_sans_sdkless',
+      extraArgs: '--extractor-args "youtube:player_client=default,-android_sdkless"'
     }
   )
 
