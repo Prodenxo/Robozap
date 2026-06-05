@@ -207,19 +207,52 @@ export class WhatsAppService {
     }
   }
 
-  async deleteMessage(remoteJid: string, messageId: string) {
+  private botJid: string | null = null;
+
+  async getBotJid(): Promise<string> {
+    if (this.botJid) return this.botJid;
     try {
-      // Em versões recentes da Evolution API v1, o método é DELETE
-      await axios.delete(`${this.baseUrl}/chat/deleteMessage/${this.instance}`, {
+      const response = await axios.get(`${this.baseUrl}/instance/connectionState/${this.instance}`, {
+        headers: this.headers
+      });
+      const jid = response.data?.instance?.owner;
+      if (jid) {
+        this.botJid = jid;
+        return jid;
+      }
+    } catch (e: any) {
+      console.error('[WHATSAPP] Error fetching bot JID:', e.message);
+    }
+    return '';
+  }
+
+  async deleteMessage(remoteJid: string, messageId: string, fromMe: boolean = false, participantJid?: string) {
+    try {
+      await axios.delete(`${this.baseUrl}/chat/deleteMessageForEveryone/${this.instance}`, {
         data: {
-          number: remoteJid,
-          messageId: messageId,
-          all: true
+          remoteJid,
+          id: messageId,
+          fromMe,
+          ...(participantJid ? { participant: participantJid } : {})
         },
         headers: this.headers
       });
+      console.log(`[WHATSAPP] Message ${messageId} deleted (fromMe: ${fromMe}, participant: ${participantJid})`);
     } catch (error: any) {
-      console.error('Error deleting message:', error.response?.data || error.message);
+      console.error('[WHATSAPP] Error deleting message:', error.response?.data || error.message);
+    }
+  }
+
+  async updateGroupSetting(groupJid: string, action: 'announcement' | 'not_announcement' | 'locked' | 'unlocked') {
+    try {
+      await axios.post(`${this.baseUrl}/group/updateSetting/${this.instance}?groupJid=${groupJid}`, {
+        action
+      }, { headers: this.headers });
+      console.log(`[WHATSAPP] Group ${groupJid} setting updated: ${action}`);
+      return true;
+    } catch (error: any) {
+      console.error('[WHATSAPP] Error updating group setting:', error.response?.data || error.message);
+      return false;
     }
   }
 

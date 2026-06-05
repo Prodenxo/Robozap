@@ -60,10 +60,6 @@ async function handleMessageUpsert(message: any) {
     msgContent.videoMessage?.caption || 
     '';
 
-  // --- FILTRO DE COMANDO ---
-  // Só processamos e logamos se a mensagem começar com o ponto (.)
-  if (!textContent.trim().startsWith('.')) return;
-
   const remoteJid = message.key.remoteJid;
   const participant = message.sender || message.key.participant || remoteJid;
   const senderName = message.pushName || 'Usuário';
@@ -75,7 +71,9 @@ async function handleMessageUpsert(message: any) {
   const quotedId = context?.stanzaId; // ID Real da mensagem citada
 
   // LOG SÓ PARA COMANDOS AGORA
-  console.log(`[COMANDO RECEBIDO] ${senderName}: ${textContent} (QuotedID: ${quotedId})`);
+  if (textContent.trim().startsWith('.')) {
+    console.log(`[COMANDO RECEBIDO] ${senderName}: ${textContent} (QuotedID: ${quotedId})`);
+  }
 
   await processMessage({
     id: message.key.id,

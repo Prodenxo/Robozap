@@ -138,6 +138,9 @@ export const COMMAND_MAP: Record<string, Function> = {
   'marcar': handleAdminCommands,
   'alertar': handleAdminCommands,
   'avisar': handleAdminCommands,
+  'abrir': handleAdminCommands,
+  'fechar': handleAdminCommands,
+  'modoadmin': handleAdminCommands,
 
   // TESTES
   'debug': handleGeneralCommands,
@@ -148,9 +151,9 @@ export const COMMAND_MAP: Record<string, Function> = {
   'oi': handleGeneralCommands,
 
   // ESTATÍSTICAS
-  'mensagens': handleGeneralCommands,
-  'ativos': handleGeneralCommands,
-  'desocupados': handleGeneralCommands,
-  'inativos': handleGeneralCommands,
-  'passivos': handleGeneralCommands,
+  'mensagens': handleAdminCommands,
+  'ativos': handleAdminCommands,
+  'desocupados': handleAdminCommands,
+  'inativos': handleAdminCommands,
+  'passivos': handleAdminCommands,
 };

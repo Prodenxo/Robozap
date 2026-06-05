@@ -96,14 +96,202 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       return true;
 
     case 'apagar':
-    case 'limpar':
+    case 'limpar': {
       const messageId = msg.quotedId;
       if (!messageId) {
         await whatsapp.sendMessage(msg.remoteJid, "Pô, responde a mensagem que tu quer apagar!");
         return true;
       }
-      await whatsapp.deleteMessage(msg.remoteJid, messageId);
+      const botJid = await whatsapp.getBotJid();
+      const participantJid = msg.quotedParticipant;
+      const fromMe = participantJid === botJid || !participantJid;
+      
+      await whatsapp.deleteMessage(msg.remoteJid, messageId, fromMe, participantJid);
       return true;
+    }
+
+    case 'abrir': {
+      const success = await whatsapp.updateGroupSetting(msg.remoteJid, 'not_announcement');
+      if (success) {
+        await whatsapp.sendMessage(msg.remoteJid, "🔓 *Grupo aberto!* Agora todos os membros podem enviar mensagens.");
+      } else {
+        await whatsapp.sendMessage(msg.remoteJid, "❌ Falha ao tentar abrir o grupo. Certifique-se de que o bot é administrador.");
+      }
+      return true;
+    }
+
+    case 'fechar': {
+      const success = await whatsapp.updateGroupSetting(msg.remoteJid, 'announcement');
+      if (success) {
+        await whatsapp.sendMessage(msg.remoteJid, "🔒 *Grupo fechado!* Apenas administradores podem enviar mensagens agora.");
+      } else {
+        await whatsapp.sendMessage(msg.remoteJid, "❌ Falha ao tentar fechar o grupo. Certifique-se de que o bot é administrador.");
+      }
+      return true;
+    }
+
+    case 'modoadmin': {
+      const mode = args[0]?.toLowerCase();
+      const group = await (prisma as any).group.findUnique({
+        where: { jid: msg.remoteJid }
+      });
+      if (!group) {
+        await whatsapp.sendMessage(msg.remoteJid, "❌ Grupo não inicializado no banco de dados.");
+        return true;
+      }
+
+      let currentSettings = group.settings ? (typeof group.settings === 'string' ? JSON.parse(group.settings) : group.settings) : {};
+      if (typeof currentSettings !== 'object') currentSettings = {};
+
+      if (['ligar', 'on', 'ativar', 'ativa'].includes(mode)) {
+        currentSettings.adminMode = true;
+        await (prisma as any).group.update({
+          where: { id: group.id },
+          data: { settings: currentSettings }
+        });
+        await whatsapp.sendMessage(msg.remoteJid, "🔒 *Modo Admin ativado!* Agora apenas administradores do grupo podem usar os comandos do bot.");
+      } else if (['desligar', 'off', 'desativar', 'desativa'].includes(mode)) {
+        currentSettings.adminMode = false;
+        await (prisma as any).group.update({
+          where: { id: group.id },
+          data: { settings: currentSettings }
+        });
+        await whatsapp.sendMessage(msg.remoteJid, "🔓 *Modo Admin desativado!* Todos os membros podem usar os comandos novamente.");
+      } else {
+        const status = currentSettings.adminMode ? 'ativado' : 'desativado';
+        await whatsapp.sendMessage(msg.remoteJid, `ℹ️ O Modo Admin está atualmente *${status}*.\n\nUse:\n.modoadmin ligar\n.modoadmin desligar`);
+      }
+      return true;
+    }
+
+    case 'ativos': {
+      const group = await (prisma as any).group.findUnique({
+        where: { jid: msg.remoteJid }
+      });
+      if (!group) {
+        await whatsapp.sendMessage(msg.remoteJid, "❌ Grupo não inicializado no banco.");
+        return true;
+      }
+
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+      const topParticipants = await (prisma as any).messageLog.groupBy({
+        by: ['userJid'],
+        where: {
+          groupId: group.id,
+          createdAt: { gte: sevenDaysAgo }
+        },
+        _count: {
+          messageId: true
+        },
+        orderBy: {
+          _count: {
+            messageId: 'desc'
+          }
+        },
+        take: 10
+      });
+
+      if (topParticipants.length === 0) {
+        await whatsapp.sendMessage(msg.remoteJid, "📈 Nenhuma atividade registrada no grupo nos últimos 7 dias.");
+        return true;
+      }
+
+      const list = topParticipants.map((p: any) => p.userJid);
+      let text = `🏆 *RANKING DE ATIVIDADE - TOP 10 (ÚLTIMOS 7 DIAS)* 🏆\n\n`;
+      
+      topParticipants.forEach((p: any, idx: number) => {
+        const number = p.userJid.split('@')[0];
+        const count = p._count.messageId;
+        text += `${idx + 1}º. @${number} — *${count} mensagens*\n`;
+      });
+
+      await whatsapp.sendMessage(msg.remoteJid, text, list);
+      return true;
+    }
+
+    case 'inativos':
+    case 'desocupados':
+    case 'passivos': {
+      await whatsapp.syncGroupParticipants(msg.remoteJid);
+      const group = await (prisma as any).group.findUnique({
+        where: { jid: msg.remoteJid }
+      });
+      if (!group) {
+        await whatsapp.sendMessage(msg.remoteJid, "❌ Grupo não inicializado no banco.");
+        return true;
+      }
+
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+      const allParticipants = await (prisma as any).groupParticipant.findMany({
+        where: { groupId: group.id },
+        select: { userJid: true }
+      });
+
+      const activeLogs = await (prisma as any).messageLog.groupBy({
+        by: ['userJid'],
+        where: {
+          groupId: group.id,
+          createdAt: { gte: sevenDaysAgo }
+        }
+      });
+      const activeJids = new Set(activeLogs.map((l: any) => l.userJid));
+
+      const inactiveUsers = allParticipants.filter((p: any) => !activeJids.has(p.userJid));
+
+      if (inactiveUsers.length === 0) {
+        await whatsapp.sendMessage(msg.remoteJid, "🎉 *Nenhum inativo!* Todos os membros enviaram pelo menos uma mensagem nos últimos 7 dias.");
+        return true;
+      }
+
+      const displayLimit = 30;
+      const displayUsers = inactiveUsers.slice(0, displayLimit);
+      const list = displayUsers.map((u: any) => u.userJid);
+
+      let text = `👻 *MEMBROS INATIVOS (SEM MENSAGENS HÁ 7 DIAS)* 👻\n`;
+      text += `Total de inativos: ${inactiveUsers.length} membros.\n\n`;
+
+      displayUsers.forEach((u: any, idx: number) => {
+        const number = u.userJid.split('@')[0];
+        text += `${idx + 1}. @${number}\n`;
+      });
+
+      if (inactiveUsers.length > displayLimit) {
+        text += `\n...e mais ${inactiveUsers.length - displayLimit} membros inativos.`;
+      }
+
+      await whatsapp.sendMessage(msg.remoteJid, text, list);
+      return true;
+    }
+
+    case 'mensagens': {
+      const user = targetJid || msg.participant;
+      const group = await (prisma as any).group.findUnique({
+        where: { jid: msg.remoteJid }
+      });
+      if (!group) {
+        await whatsapp.sendMessage(msg.remoteJid, "❌ Grupo não inicializado no banco.");
+        return true;
+      }
+      
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      
+      const count = await (prisma as any).messageLog.count({
+        where: {
+          groupId: group.id,
+          userJid: user,
+          createdAt: { gte: sevenDaysAgo }
+        }
+      });
+      
+      const number = user.split('@')[0];
+      await whatsapp.sendMessage(msg.remoteJid, `📊 @${number} enviou *${count} mensagens* nos últimos 7 dias neste grupo.`, [user]);
+      return true;
+    }
 
     case 'todos':
     case 'marcar': {

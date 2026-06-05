@@ -1,5 +1,6 @@
 import { COMMAND_MAP } from '../core/CommandRegistry';
 import { SubscriptionGuard, PermissionGuard } from '../core/Guards';
+import { prisma } from './database';
 import { StatsService } from './stats';
 import { botTexts } from '../config/texts';
 import { WhatsAppService } from './whatsapp';
@@ -56,6 +57,28 @@ export const processMessage = async (msg: MessageData) => {
   const command = args.shift()?.toLowerCase();
 
   if (!command) return;
+
+  // 1.1. Guard do Modo Admin (Restringir bot apenas para administradores)
+  const isGroup = msg.remoteJid.endsWith('@g.us');
+  if (isGroup) {
+    const group = await prisma.group.findUnique({
+      where: { jid: msg.remoteJid }
+    });
+    if (group) {
+      let currentSettings = group.settings ? (typeof group.settings === 'string' ? JSON.parse(group.settings) : group.settings) : {};
+      if (currentSettings && currentSettings.adminMode === true) {
+        const isEssential = ['menu', 'vencimento', 'ajuda', 'filhote.ajuda'].includes(command);
+        if (!isEssential) {
+          const hasPermission = await PermissionGuard.canExecute(msg.participant, msg.remoteJid, PermissionGuard.ROLES.ADM);
+          if (!hasPermission) {
+            console.log(`[ROUTER] Modo Admin ativo. Ignorando comando .${command} de não-admin: ${msg.participant}`);
+            await whatsapp.sendMessage(msg.remoteJid, "⚠️ *Modo Admin Ativo:* Apenas administradores do grupo podem usar este bot no momento.");
+            return;
+          }
+        }
+      }
+    }
+  }
 
   if (isDuplicateCommandMessage(msg.id)) {
     console.log(`[ROUTER] Mensagem duplicada ignorada: ${msg.id}`);
