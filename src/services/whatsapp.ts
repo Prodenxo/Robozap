@@ -91,11 +91,19 @@ export class WhatsAppService {
   async groupUpdateParticipant(groupJid: string, action: 'add' | 'remove' | 'promote' | 'demote', participants: string[]) {
     try {
       const resolvedParticipants = participants.map(p => {
-        if (typeof p === 'string' && p.endsWith('@s.whatsapp.net')) {
-          const lid = LidMapService.getLid(p);
-          return lid || p;
+        if (action === 'add') {
+          if (typeof p === 'string' && p.endsWith('@lid')) {
+            const real = LidMapService.get(p);
+            return real || p;
+          }
+          return p;
+        } else {
+          if (typeof p === 'string' && p.endsWith('@s.whatsapp.net')) {
+            const lid = LidMapService.getLid(p);
+            return lid || p;
+          }
+          return p;
         }
-        return p;
       });
 
       const response = await axios.post(`${this.baseUrl}/group/updateParticipant/${this.instance}`, {
