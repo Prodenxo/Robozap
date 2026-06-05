@@ -288,17 +288,17 @@ interface CobaltResponse {
 function resolveCobaltBases (): string[] {
   const fromEnv = envList('COBALT_API_URL');
   const fallbacks = [
+    'https://fox.kittycat.boo',
+    'https://dog.kittycat.boo',
+    'https://api.cobalt.blackcat.sweeux.org',
     'https://subito-c.meowing.de',
     'https://cobalt.omega.wolfy.love',
     'https://grapefruit.clxxped.lol',
     'https://nuko-c.meowing.de',
     'https://lime.clxxped.lol',
-    'https://fox.kittycat.boo',
-    'https://dog.kittycat.boo',
     'https://apicobalt.mgytr.top',
     'https://api.cobalt.liubquanti.click',
-    'https://api.qwkuns.me',
-    'https://api.cobalt.blackcat.sweeux.org'
+    'https://api.qwkuns.me'
   ];
   
   if (fromEnv.length) {
@@ -333,7 +333,7 @@ async function requestCobaltAudio (
       audioBitrate: '128',
       youtubeBetterAudio: true
     },
-    { headers, timeout: 180000 }
+    { headers, timeout: 10000 }
   );
 
   if (data.status === 'error') {
