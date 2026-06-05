@@ -26,23 +26,26 @@ services:
       RATELIMIT_MAX: "30"
       # Cookies YouTube (copie cookies.json para a pasta do projeto)
       COOKIE_PATH: /cookies.json
-      # Opcional depois: renovação automática sem exportar de novo
-      # YOUTUBE_SESSION_SERVER: http://yt-session:8080/
-      # YOUTUBE_SESSION_INNERTUBE_CLIENT: WEB_EMBEDDED
+      # Renovação automática usando o yt-session
+      YOUTUBE_SESSION_SERVER: http://yt-session:8080/
+      YOUTUBE_SESSION_INNERTUBE_CLIENT: WEB_EMBEDDED
+      API_EXTERNAL_PROXY: "${HTTP_PROXY:-}"
     volumes:
       - ./cookies.json:/cookies.json:ro
-    # depends_on:
-    #   - yt-session
+    depends_on:
+      - yt-session
     networks:
       - robozap-net
 
-  # Descomente se for usar YOUTUBE_SESSION_SERVER no cobalt (sem cookies manuais)
-  # yt-session:
-  #   image: ghcr.io/imputnet/yt-session-generator:webserver
-  #   init: true
-  #   restart: unless-stopped
-  #   networks:
-  #     - robozap-net
+  yt-session:
+    image: ghcr.io/imputnet/yt-session-generator:webserver
+    init: true
+    restart: unless-stopped
+    environment:
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+    networks:
+      - robozap-net
 
 networks:
   robozap-net:

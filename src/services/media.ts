@@ -17,24 +17,111 @@ interface YtDlpStrategy {
   extraArgs: string
 }
 
-function getCookiesPath (): string | null {
-  if (process.env.YOUTUBE_USE_COOKIES !== 'true') {
-    return null
-  }
-
-  const fromEnv = process.env.YOUTUBE_COOKIES_PATH?.trim()
-  const candidates = [
-    fromEnv,
-    path.join(process.cwd(), 'cookies.txt')
-  ].filter((p): p is string => Boolean(p))
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate) && fs.statSync(candidate).size > 0) {
-      return candidate
+function ensureCookiesFile (): string | null {
+  try {
+    const fromEnv = process.env.YOUTUBE_COOKIES_PATH?.trim()
+    if (fromEnv && fs.existsSync(fromEnv) && fs.statSync(fromEnv).size > 0) {
+      return fromEnv
     }
+
+    const cookiesTxtPath = path.join(process.cwd(), 'cookies.txt')
+
+    // 1. Verificar se os cookies foram passados diretamente por variável de ambiente YOUTUBE_COOKIES
+    const rawCookiesEnv = process.env.YOUTUBE_COOKIES?.trim()
+    if (rawCookiesEnv && rawCookiesEnv.length > 0) {
+      console.log('[COOKIES] Detectada variável YOUTUBE_COOKIES. Gerando cookies.txt...')
+      const lines = [
+        '# Netscape HTTP Cookie File',
+        '# http://curl.haxx.se/rfc/cookie_spec.html',
+        '# This is a generated file! Do not edit.',
+        ''
+      ]
+      const parts = rawCookiesEnv.split(';')
+      for (const part of parts) {
+        const trimmed = part.trim()
+        if (!trimmed) continue
+        const eqIdx = trimmed.indexOf('=')
+        if (eqIdx === -1) continue
+        const name = trimmed.substring(0, eqIdx)
+        const value = trimmed.substring(eqIdx + 1)
+        
+        const domain = '.youtube.com'
+        const flag = 'TRUE'
+        const pathVal = '/'
+        const secure = 'TRUE'
+        const expiration = '2000000000' // Ano 2033
+        
+        lines.push([domain, flag, pathVal, secure, expiration, name, value].join('\t'))
+      }
+      fs.writeFileSync(cookiesTxtPath, lines.join('\n'), 'utf8')
+      console.log('[COOKIES] cookies.txt gerado com sucesso a partir da variável YOUTUBE_COOKIES!')
+      return cookiesTxtPath
+    }
+
+    // 2. Se cookies.txt já existe na raiz e tem tamanho maior que zero, retornamos ele
+    if (fs.existsSync(cookiesTxtPath) && fs.statSync(cookiesTxtPath).size > 0) {
+      return cookiesTxtPath
+    }
+
+    // 3. Se cookies.json existe, vamos ler e converter
+    const cookiesJsonPath = path.join(process.cwd(), 'cookies.json')
+    if (fs.existsSync(cookiesJsonPath)) {
+      console.log('[COOKIES] Encontrado cookies.json. Iniciando conversão para formato Netscape...')
+      const content = fs.readFileSync(cookiesJsonPath, 'utf8')
+      const data = JSON.parse(content)
+      const youtubeData = data?.youtube
+      let cookieStr = ''
+      
+      if (Array.isArray(youtubeData)) {
+        cookieStr = youtubeData[0] || ''
+      } else if (typeof youtubeData === 'string') {
+        cookieStr = youtubeData
+      }
+
+      if (cookieStr && cookieStr.trim().length > 0) {
+        const lines = [
+          '# Netscape HTTP Cookie File',
+          '# http://curl.haxx.se/rfc/cookie_spec.html',
+          '# This is a generated file! Do not edit.',
+          ''
+        ]
+        const parts = cookieStr.split(';')
+        for (const part of parts) {
+          const trimmed = part.trim()
+          if (!trimmed) continue
+          const eqIdx = trimmed.indexOf('=')
+          if (eqIdx === -1) continue
+          const name = trimmed.substring(0, eqIdx)
+          const value = trimmed.substring(eqIdx + 1)
+          
+          const domain = '.youtube.com'
+          const flag = 'TRUE'
+          const pathVal = '/'
+          const secure = 'TRUE'
+          const expiration = '2000000000' // Ano 2033
+          
+          lines.push([domain, flag, pathVal, secure, expiration, name, value].join('\t'))
+        }
+        
+        fs.writeFileSync(cookiesTxtPath, lines.join('\n'), 'utf8')
+        console.log('[COOKIES] Convertido cookies.json para cookies.txt com sucesso!')
+        return cookiesTxtPath
+      } else {
+        console.warn('[COOKIES] O cookies.json foi encontrado, mas a chave "youtube" estava vazia ou inválida.')
+      }
+    }
+  } catch (error) {
+    console.error('[COOKIES] Erro ao obter cookies:', error)
   }
 
   return null
+}
+
+function getCookiesPath (): string | null {
+  if (process.env.YOUTUBE_USE_COOKIES === 'false') {
+    return null
+  }
+  return ensureCookiesFile()
 }
 
 function shellQuote (value: string): string {
