@@ -47,7 +47,17 @@ export const processMessage = async (msg: MessageData) => {
 
   // Capture Stats for the group
   if (msg.remoteJid.endsWith('@g.us')) {
-      await stats.trackMessage(msg.participant, msg.remoteJid, msg.id, msg.text, msg.pushName);
+      const ignoredTypes = [
+        'reactionMessage',
+        'protocolMessage',
+        'senderKeyDistributionMessage',
+        'peerDataOperationRequestMessage',
+        'pollUpdateMessage',
+        'emptyMessage'
+      ];
+      if (msg.messageType && !ignoredTypes.includes(msg.messageType)) {
+          await stats.trackMessage(msg.participant, msg.remoteJid, msg.id, msg.text, msg.pushName);
+      }
   }
 
   const prefix = '.';
