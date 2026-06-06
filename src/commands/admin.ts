@@ -263,9 +263,10 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
+      // Buscar participantes COM roleCode para filtrar admins
       const allParticipants = await (prisma as any).groupParticipant.findMany({
         where: { groupId: group.id },
-        select: { userJid: true }
+        select: { userJid: true, roleCode: true }
       });
 
       // Agrupa logs de mensagens ativos nos últimos 7 dias
@@ -290,7 +291,13 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         return jid;
       };
 
-      // Consolidar contagens por JID canônico
+      // Construir mapa reverso: realJid -> lid (para consolidar contagens)
+      const reverseMap: Record<string, string> = {};
+      for (const [lid, real] of Object.entries(fullLidMap)) {
+        reverseMap[real] = lid;
+      }
+
+      // Consolidar contagens por JID canônico (junta LID + JID real)
       const countMap = new Map<string, number>();
       for (const log of activeLogs) {
         const canonicalJid = getCanonical(log.userJid);
@@ -301,22 +308,34 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       const botJid = await whatsapp.getBotJid();
       const canonicalBotJid = getCanonical(botJid);
 
-      // Filtrar membros com menos de 50 mensagens
+      // Filtrar membros com menos de 50 mensagens (excluindo bot e admins)
       const inactiveUsers: { userJid: string, count: number }[] = [];
+      const seenCanonical = new Set<string>();
+
       for (const p of allParticipants) {
         const canonicalJid = getCanonical(p.userJid);
 
         // Excluir o bot
-        if (canonicalJid === canonicalBotJid) {
-          continue;
-        }
+        if (canonicalJid === canonicalBotJid) continue;
+
+        // Excluir admins e donos (roleCode: 1=Dono, 2=ADM_Confiavel, 3=ADM)
+        if (p.roleCode <= 3) continue;
 
         // Evitar duplicatas de participantes
-        if (inactiveUsers.some(u => u.userJid === canonicalJid)) {
-          continue;
+        if (seenCanonical.has(canonicalJid)) continue;
+        seenCanonical.add(canonicalJid);
+
+        // Somar contagens do JID real E do LID correspondente
+        let count = countMap.get(canonicalJid) || 0;
+        // Se o canonical é um JID real, verificar se existe contagem pelo LID correspondente
+        if (canonicalJid.endsWith('@s.whatsapp.net') && reverseMap[canonicalJid]) {
+          count += countMap.get(reverseMap[canonicalJid]) || 0;
+        }
+        // Se o canonical ainda é um LID (não resolvido), verificar contagens pelo JID original do participante
+        if (p.userJid !== canonicalJid) {
+          count += countMap.get(p.userJid) || 0;
         }
 
-        const count = countMap.get(canonicalJid) || 0;
         if (count < 50) {
           inactiveUsers.push({ userJid: canonicalJid, count });
         }
@@ -326,7 +345,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       inactiveUsers.sort((a, b) => a.count - b.count);
 
       if (inactiveUsers.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, "🎉 *Nenhum inativo!* Todos os membros enviaram 50 ou mais mensagens nos últimos 7 dias.");
+        await whatsapp.sendMessage(msg.remoteJid, "🎉 *Nenhum inativo!* Todos os membros (não-admin) enviaram 50 ou mais mensagens nos últimos 7 dias.");
         return true;
       }
 
@@ -335,7 +354,8 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       const list = displayUsers.map(u => u.userJid);
 
       let text = `👻 *MEMBROS INATIVOS (< 50 MENSAGENS HÁ 7 DIAS)* 👻\n`;
-      text += `Total de inativos: ${inactiveUsers.length} membros.\n\n`;
+      text += `Total de inativos: ${inactiveUsers.length} membros.\n`;
+      text += `_(Admins e donos são excluídos da lista)_\n\n`;
 
       displayUsers.forEach((u, idx) => {
         const number = u.userJid.split('@')[0];
