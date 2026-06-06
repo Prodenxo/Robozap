@@ -197,10 +197,18 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         const nvao = roleWithParticipations.participations.filter((p: any) => p.status === 'nvou');
 
         const vaoNames = await Promise.all(
-          vao.map(async (p: any) => await whatsapp.resolveName(p.participant.userJid, msg.remoteJid))
+          vao.map(async (p: any) => {
+            const name = await whatsapp.resolveName(p.participant.userJid, msg.remoteJid);
+            const number = p.participant.userJid.split('@')[0];
+            return `${name} (${number})`;
+          })
         );
         const nvaoNames = await Promise.all(
-          nvao.map(async (p: any) => await whatsapp.resolveName(p.participant.userJid, msg.remoteJid))
+          nvao.map(async (p: any) => {
+            const name = await whatsapp.resolveName(p.participant.userJid, msg.remoteJid);
+            const number = p.participant.userJid.split('@')[0];
+            return `${name} (${number})`;
+          })
         );
 
         const icon = status === 'vou' ? '✅' : '❌';
@@ -268,10 +276,18 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
           const nvao = role.participations.filter((p: any) => p.status === 'nvou');
 
           const vaoNames = await Promise.all(
-            vao.map(async (p: any) => await whatsapp.resolveName(p.participant.userJid, msg.remoteJid))
+            vao.map(async (p: any) => {
+              const name = await whatsapp.resolveName(p.participant.userJid, msg.remoteJid);
+              const number = p.participant.userJid.split('@')[0];
+              return `${name} (${number})`;
+            })
           );
           const nvaoNames = await Promise.all(
-            nvao.map(async (p: any) => await whatsapp.resolveName(p.participant.userJid, msg.remoteJid))
+            nvao.map(async (p: any) => {
+              const name = await whatsapp.resolveName(p.participant.userJid, msg.remoteJid);
+              const number = p.participant.userJid.split('@')[0];
+              return `${name} (${number})`;
+            })
           );
 
           listText += `📌 *[Código: ${role.code}] - ${role.title}*\n`;
