@@ -177,14 +177,10 @@ export class WhatsAppService {
       }
 
       console.log(`[WHATSAPP] Sending sticker to ${remoteJid}. Length: ${stickerData.length}, Start: ${stickerData.substring(0, 20)}`);
-      let formattedSticker = stickerData;
-      if (!stickerData.startsWith('data:') && !stickerData.startsWith('http')) {
-        formattedSticker = `data:image/png;base64,${stickerData}`;
-      }
 
       await axios.post(`${this.baseUrl}/message/sendSticker/${this.instance}`, {
         number: remoteJid,
-        sticker: formattedSticker
+        sticker: stickerData
       }, { 
           headers: this.headers,
           timeout: 60000 // 60 segundos para conversão webp
