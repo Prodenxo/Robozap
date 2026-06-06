@@ -34,7 +34,10 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
             group: { connect: { id: group.id } }
           }
         });
-        await whatsapp.sendMessage(msg.remoteJid, `✅ *ROLÊ MARCADO!* 🍻\n\n📌 *${newRole.title}*\n📝 ${newRole.description}\n\nDigite *.vou* para confirmar presenca!`);
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          `✅ *ROLÊ MARCADO!* 🍻\n\n📌 *${newRole.title}*\n📝 ${newRole.description}\n\nPara participar, responda com:\n👉 *.vou* - Confirmar presença\n👉 *.nvou* - Recusar / Não vou\n\nPara ver a lista atualizada a qualquer momento, digite *.roles* ou *.resenha*.`
+        );
       } catch (error) {
         console.error('Error creating role:', error);
       }
@@ -74,6 +77,26 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
     case 'nvou':
     case 'role.nvou':
     case 'vounao':
+    case 'lista.entrar':
+    case 'nicho.entrar':
+    case 'lista.sim':
+    case 'nicho.sim':
+    case 'lista.participar':
+    case 'nicho.participar':
+    case 'lista.quero':
+    case 'nicho.quero':
+    case 'lista.todentro':
+    case 'nicho.todentro':
+    case 'lista.sair':
+    case 'nicho.sair':
+    case 'lista.nao':
+    case 'nicho.nao':
+    case 'lista.nparticipar':
+    case 'nicho.nparticipar':
+    case 'lista.nquero':
+    case 'nicho.nquero':
+    case 'lista.tofora':
+    case 'nicho.tofora':
       try {
         const group = await (prisma as any).group.findUnique({ where: { jid: msg.remoteJid } });
         if (!group) return true;
@@ -88,17 +111,34 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
           return true;
         }
 
-        const status = (command === 'vou' || command === 'role.vou') ? 'vou' : 'nvou';
+        const isYes = [
+          'vou', 'role.vou', 
+          'lista.entrar', 'nicho.entrar', 
+          'lista.sim', 'nicho.sim', 
+          'lista.participar', 'nicho.participar', 
+          'lista.quero', 'nicho.quero', 
+          'lista.todentro', 'nicho.todentro'
+        ].includes(command);
+
+        const status = isYes ? 'vou' : 'nvou';
         
-        // Ensure participant exists
-        const participant = await (prisma as any).groupParticipant.findUnique({
-          where: { groupId_userJid: { groupId: group.id, userJid } }
+        // Garante que o usuário existe no banco com o pushName atualizado
+        await (prisma as any).user.upsert({
+          where: { jid: userJid },
+          update: { pushName: msg.pushName || 'Usuário' },
+          create: { jid: userJid, pushName: msg.pushName || 'Usuário' }
         });
 
-        if (!participant) {
-            await whatsapp.sendMessage(msg.remoteJid, "❌ Você ainda não está no meu sistema desse grupo. Manda um oi antes!");
-            return true;
-        }
+        // Garante que o participante está registrado no grupo
+        const participant = await (prisma as any).groupParticipant.upsert({
+          where: { groupId_userJid: { groupId: group.id, userJid } },
+          update: {},
+          create: {
+            group: { connect: { id: group.id } },
+            user: { connect: { jid: userJid } },
+            roleCode: 5
+          }
+        });
 
         await (prisma as any).roleParticipation.upsert({
           where: { roleId_participantId: { roleId: latestRole.id, participantId: participant.id } },
@@ -106,8 +146,31 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
           create: { roleId: latestRole.id, participantId: participant.id, status: status }
         });
 
+        // Busca a lista atualizada de participantes
+        const roleWithParticipations = await (prisma as any).roleEvent.findUnique({
+          where: { id: latestRole.id },
+          include: { 
+            participations: { 
+              include: { participant: { include: { user: true } } } 
+            } 
+          }
+        });
+
+        const vao = roleWithParticipations.participations.filter((p: any) => p.status === 'vou');
+        const nvao = roleWithParticipations.participations.filter((p: any) => p.status === 'nvou');
+
+        const vaoNames = vao.map((p: any) => p.participant.user?.pushName || 'Anon').join(', ');
+        const nvaoNames = nvao.map((p: any) => p.participant.user?.pushName || 'Anon').join(', ');
+
         const icon = status === 'vou' ? '✅' : '❌';
-        await whatsapp.sendMessage(msg.remoteJid, `${icon} *Sua presença no rolê "${latestRole.title}" foi atualizada!*`);
+        const actionText = status === 'vou' ? 'confirmou presença' : 'recusou';
+        
+        let replyText = `${icon} *${msg.pushName}* ${actionText} no rolê *"${latestRole.title}"*!\n\n`;
+        replyText += `✅ *Vão (${vao.length}):* ${vaoNames || 'Ninguém'}\n`;
+        replyText += `❌ *Não vão (${nvao.length}):* ${nvaoNames || 'Todo mundo'}\n\n`;
+        replyText += `Para atualizar sua presença, digite *.vou* ou *.nvou*!`;
+
+        await whatsapp.sendMessage(msg.remoteJid, replyText);
       } catch (error) {
         console.error('Error in role participation:', error);
       }
