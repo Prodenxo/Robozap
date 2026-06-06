@@ -81,9 +81,11 @@ export class WhatsAppService {
         };
       }
 
-      await axios.post(`${this.baseUrl}/message/sendText/${this.instance}`, payload, { headers: this.headers });
+      console.log(`[WHATSAPP] POST /message/sendText: Payload: ${JSON.stringify(payload)}`);
+      const response = await axios.post(`${this.baseUrl}/message/sendText/${this.instance}`, payload, { headers: this.headers });
+      console.log(`[WHATSAPP] POST /message/sendText response status: ${response.status}`);
     } catch (error: any) {
-      console.error('Error sending message:', error.response?.data || error.message);
+      console.error('[WHATSAPP] Error sending message:', error.response?.data || error.message);
     }
   }
 
@@ -360,10 +362,12 @@ export class WhatsAppService {
         }
       }
 
+      console.log(`[WHATSAPP] POST /message/sendMedia: Payload (without base64): ${JSON.stringify({ ...payload, media: payload.media ? '(base64 string)' : undefined })}`);
       const response = await axios.post(`${this.baseUrl}/message/sendMedia/${this.instance}`, payload, { headers: this.headers });
+      console.log(`[WHATSAPP] POST /message/sendMedia response status: ${response.status}`);
       return response.data;
     } catch (error: any) {
-      console.error('Error sending media:', error.response?.data || error.message);
+      console.error('[WHATSAPP] Error sending media:', error.response?.data || error.message);
       throw new Error('Falha ao enviar mídia no WhatsApp');
     }
   }

@@ -63,7 +63,10 @@ export async function checkScheduledAlerts() {
 
         const text = alert.text || '📢 *Alerta Programado!*';
 
+        console.log(`[SCHEDULER] Preparando envio para ${group.jid}. Mídia: ${alert.mediaType || 'Nenhuma'}, Total de participantes: ${list.length}`);
+
         if (alert.mediaBase64 && alert.mediaType) {
+          console.log(`[SCHEDULER] Chamando whatsapp.sendMedia...`);
           await whatsapp.sendMedia(
             group.jid,
             alert.mediaBase64,
@@ -72,8 +75,11 @@ export async function checkScheduledAlerts() {
             text,
             list
           );
+          console.log(`[SCHEDULER] Retornou de whatsapp.sendMedia com sucesso.`);
         } else {
+          console.log(`[SCHEDULER] Chamando whatsapp.sendMessage...`);
           await whatsapp.sendMessage(group.jid, text, list);
+          console.log(`[SCHEDULER] Retornou de whatsapp.sendMessage com sucesso.`);
         }
 
         // Atualiza o lastSent
