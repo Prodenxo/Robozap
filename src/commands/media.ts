@@ -2,9 +2,26 @@ import { WhatsAppService } from '../services/whatsapp';
 import { MediaService } from '../services/media';
 import { tryAcquireMusicLock, releaseMusicLock } from '../services/musicLock';
 import { botTexts } from '../config/texts';
-
+import axios from 'axios';
 import path from 'path';
 import fs from 'fs';
+
+function wrapText(text: string, maxCharsPerLine: number = 15): string {
+  const words = text.split(' ');
+  let currentLine = '';
+  const lines: string[] = [];
+
+  for (const word of words) {
+    if ((currentLine + ' ' + word).trim().length <= maxCharsPerLine) {
+      currentLine = (currentLine + ' ' + word).trim();
+    } else {
+      if (currentLine) lines.push(currentLine);
+      currentLine = word;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+  return lines.join('\n');
+}
 
 const whatsapp = new WhatsAppService();
 const media = new MediaService();
@@ -13,6 +30,37 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
   switch (command) {
     case 'fig':
     case 'sticker':
+      let stickerText = args.join(' ').trim();
+      
+      if (!stickerText && msg.quoted) {
+        stickerText = msg.quoted.conversation || 
+                      msg.quoted.extendedTextMessage?.text || 
+                      '';
+      }
+
+      if (stickerText) {
+        await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figStart);
+        try {
+          const wrappedText = wrapText(stickerText, 15);
+          const backgroundHex = '121b22';
+          const textHex = 'ffffff';
+          const font = 'montserrat';
+          const placeholderUrl = `https://placehold.co/512x512/${backgroundHex}/${textHex}/png?text=${encodeURIComponent(wrappedText)}&font=${font}`;
+
+          console.log(`[MEDIA] Gerando figurinha de texto com a URL: ${placeholderUrl}`);
+          
+          const response = await axios.get(placeholderUrl, { responseType: 'arraybuffer' });
+          const base64 = Buffer.from(response.data, 'binary').toString('base64');
+          const dataUri = `data:image/png;base64,${base64}`;
+
+          await whatsapp.sendSticker(msg.remoteJid, dataUri);
+        } catch (error) {
+          console.error('[MEDIA] Text Sticker Error:', error);
+          await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figErrorGeneric);
+        }
+        return true;
+      }
+
       const msgContent = msg.raw?.message || {};
       const quotedContent = msg.quoted || {};
 
@@ -46,15 +94,26 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
           
           if (!targetMessageId) throw new Error('No message ID found for media');
 
+          // Tenta adivinhar se a mensagem citada é do próprio bot
+          const botJid = await whatsapp.getBotJid();
+          const isQuotedFromMe = isQuoted && msg.quotedParticipant === botJid;
+
           const key = {
               id: targetMessageId,
               remoteJid: msg.remoteJid,
-              fromMe: false // Most common case, we'll try this first
+              fromMe: isQuotedFromMe
           };
 
-          console.log(`[MEDIA] .fig command. Target ID: ${targetMessageId}, IsQuoted: ${isQuoted}`);
+          console.log(`[MEDIA] .fig command. Target ID: ${targetMessageId}, IsQuoted: ${isQuoted}, initial fromMe: ${key.fromMe}`);
           
-          const base64 = await whatsapp.getBase64FromMessage(key);
+          let base64 = await whatsapp.getBase64FromMessage(key);
+          if (!base64) {
+            // Se falhar, tenta com o valor oposto de fromMe
+            console.log(`[MEDIA] Falha ao obter base64 com fromMe: ${key.fromMe}. Tentando o oposto...`);
+            key.fromMe = !key.fromMe;
+            base64 = await whatsapp.getBase64FromMessage(key);
+          }
+
           if (base64) {
             await whatsapp.sendSticker(msg.remoteJid, base64);
           } else {
