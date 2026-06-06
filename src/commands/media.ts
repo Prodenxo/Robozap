@@ -25,6 +25,35 @@ function wrapText(text: string, maxCharsPerLine: number = 15): string {
 
 const { decryptMedia } = require('@open-wa/wa-decrypt');
 
+function toBuffer(obj: any): Buffer | null {
+  if (!obj) return null;
+  if (Buffer.isBuffer(obj)) return obj;
+  if (obj instanceof Uint8Array) return Buffer.from(obj);
+  
+  if (typeof obj === 'object') {
+    const keys = Object.keys(obj).map(Number).filter(n => !isNaN(n));
+    if (keys.length > 0) {
+      const arr = new Uint8Array(keys.length);
+      for (const k of keys) {
+        arr[k] = obj[k];
+      }
+      return Buffer.from(arr);
+    }
+  }
+
+  if (typeof obj === 'string') {
+    return Buffer.from(obj, 'base64');
+  }
+
+  return null;
+}
+
+function toNumber(obj: any): number {
+  if (typeof obj === 'number') return obj;
+  if (obj && typeof obj.low === 'number') return obj.low;
+  return 0;
+}
+
 async function decryptMediaLocally(targetMedia: any): Promise<string | null> {
   try {
     if (!targetMedia.mediaKey || (!targetMedia.url && !targetMedia.directPath)) {
@@ -41,13 +70,18 @@ async function decryptMediaLocally(targetMedia: any): Promise<string | null> {
       type = 'audio';
     }
 
+    const mediaKeyBuf = toBuffer(targetMedia.mediaKey);
+    const filehashBuf = toBuffer(targetMedia.fileSha256 || targetMedia.filehash || targetMedia.fileEncSha256);
+
+    const clientUrl = targetMedia.url || (targetMedia.directPath ? `https://mmg.whatsapp.net${targetMedia.directPath}` : '');
     const decryptPayload = {
       type: type,
-      clientUrl: targetMedia.url || (targetMedia.directPath ? `https://mmg.whatsapp.net${targetMedia.directPath}` : ''),
-      mediaKey: targetMedia.mediaKey,
+      clientUrl: clientUrl,
+      deprecatedMms3Url: clientUrl,
+      mediaKey: mediaKeyBuf ? mediaKeyBuf.toString('base64') : '',
       mimetype: targetMedia.mimetype,
-      size: targetMedia.fileLength || targetMedia.size || 0,
-      filehash: targetMedia.fileSha256 || targetMedia.filehash || targetMedia.fileEncSha256
+      size: toNumber(targetMedia.fileLength || targetMedia.size),
+      filehash: filehashBuf ? filehashBuf.toString('base64') : ''
     };
 
     console.log(`[DECRYPT] Tentando descriptografar mídia localmente. Mimetype: ${decryptPayload.mimetype}, Type: ${decryptPayload.type}`);
