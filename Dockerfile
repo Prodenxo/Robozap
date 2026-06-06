@@ -3,13 +3,6 @@ FROM node:20 AS builder
 
 WORKDIR /app
 
-# Limpar proxies SOCKS5 injetados pelo Easypanel (--build-arg)
-# Prisma e seus engines nao suportam SOCKS5. O servidor tem acesso direto a internet.
-ENV HTTP_PROXY=""
-ENV HTTPS_PROXY=""
-ENV http_proxy=""
-ENV https_proxy=""
-
 # Install dependencies for building
 COPY package*.json ./
 COPY prisma ./prisma
@@ -19,10 +12,11 @@ ENV DATABASE_URL="mysql://root:password@localhost:3306/db"
 ENV CHECKPOINT_DISABLE=1
 ENV PRISMA_HIDE_UPDATE_MESSAGE=1
 
-RUN npm install --legacy-peer-deps
-
-# Generate Prisma Client
-RUN ./node_modules/.bin/prisma generate
+# Remover completamente as variaveis de proxy SOCKS5 injetadas pelo Easypanel (--build-arg).
+# Prisma nao suporta SOCKS5. Usar 'unset' ao inves de ENV="" para remover de verdade.
+RUN unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy && \
+    npm install --legacy-peer-deps && \
+    ./node_modules/.bin/prisma generate
 
 # Copy source and build
 COPY . .
