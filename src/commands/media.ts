@@ -31,15 +31,26 @@ async function decryptMediaLocally(targetMedia: any): Promise<string | null> {
       return null;
     }
 
+    let type = 'document';
+    const mime = targetMedia.mimetype || '';
+    if (mime.startsWith('image/')) {
+      type = mime.includes('webp') ? 'sticker' : 'image';
+    } else if (mime.startsWith('video/')) {
+      type = 'video';
+    } else if (mime.startsWith('audio/')) {
+      type = 'audio';
+    }
+
     const decryptPayload = {
-      clientUrl: targetMedia.url || targetMedia.directPath,
+      type: type,
+      clientUrl: targetMedia.url || (targetMedia.directPath ? `https://mmg.whatsapp.net${targetMedia.directPath}` : ''),
       mediaKey: targetMedia.mediaKey,
       mimetype: targetMedia.mimetype,
-      size: targetMedia.fileLength || targetMedia.size,
+      size: targetMedia.fileLength || targetMedia.size || 0,
       filehash: targetMedia.fileSha256 || targetMedia.filehash || targetMedia.fileEncSha256
     };
 
-    console.log(`[DECRYPT] Tentando descriptografar mídia localmente. Mimetype: ${decryptPayload.mimetype}`);
+    console.log(`[DECRYPT] Tentando descriptografar mídia localmente. Mimetype: ${decryptPayload.mimetype}, Type: ${decryptPayload.type}`);
     const buffer = await decryptMedia(decryptPayload);
     if (buffer && buffer.length > 0) {
       console.log(`[DECRYPT] Sucesso na descriptografia local! Tamanho: ${buffer.length}`);
