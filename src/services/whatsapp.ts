@@ -37,27 +37,30 @@ export class WhatsAppService {
           jid = `${jid}@s.whatsapp.net`;
         }
 
+        let realJid = jid;
+        let lid = jid;
+
         if (jid.endsWith('@lid')) {
-          finalMentions.push(jid);
-          const realJid = LidMapService.get(jid);
-          if (realJid) {
-            const realNum = realJid.split('@')[0];
-            const lidNum = jid.split('@')[0];
-            updatedText = updatedText.replace(new RegExp(`@${realNum}\\b`, 'g'), `@${lidNum}`);
+          const resolved = LidMapService.get(jid);
+          if (resolved) {
+            realJid = resolved;
           }
         } else if (jid.endsWith('@s.whatsapp.net')) {
-          const lid = LidMapService.getLid(jid);
-          if (lid) {
-            finalMentions.push(lid);
-            const realNum = jid.split('@')[0];
-            const lidNum = lid.split('@')[0];
-            updatedText = updatedText.replace(new RegExp(`@${realNum}\\b`, 'g'), `@${lidNum}`);
-          } else {
-            finalMentions.push(jid);
+          const resolvedLid = LidMapService.getLid(jid);
+          if (resolvedLid) {
+            lid = resolvedLid;
           }
-        } else {
-          finalMentions.push(jid);
         }
+
+        // Sempre adiciona o JID real para garantir a entrega, e o LID para compatibilidade.
+        finalMentions.push(realJid);
+        if (lid !== realJid) {
+          finalMentions.push(lid);
+        }
+
+        const realNum = realJid.split('@')[0];
+        const lidNum = lid.split('@')[0];
+        updatedText = updatedText.replace(new RegExp(`@${realNum}\\b`, 'g'), `@${lidNum}`);
       }
 
       const uniqueMentions = Array.from(new Set(finalMentions.filter(Boolean)));
@@ -324,27 +327,29 @@ export class WhatsAppService {
             jid = `${jid}@s.whatsapp.net`;
           }
 
+          let realJid = jid;
+          let lid = jid;
+
           if (jid.endsWith('@lid')) {
-            finalMentions.push(jid);
-            const realJid = LidMapService.get(jid);
-            if (realJid) {
-              const realNum = realJid.split('@')[0];
-              const lidNum = jid.split('@')[0];
-              updatedCaption = updatedCaption.replace(new RegExp(`@${realNum}\\b`, 'g'), `@${lidNum}`);
+            const resolved = LidMapService.get(jid);
+            if (resolved) {
+              realJid = resolved;
             }
           } else if (jid.endsWith('@s.whatsapp.net')) {
-            const lid = LidMapService.getLid(jid);
-            if (lid) {
-              finalMentions.push(lid);
-              const realNum = jid.split('@')[0];
-              const lidNum = lid.split('@')[0];
-              updatedCaption = updatedCaption.replace(new RegExp(`@${realNum}\\b`, 'g'), `@${lidNum}`);
-            } else {
-              finalMentions.push(jid);
+            const resolvedLid = LidMapService.getLid(jid);
+            if (resolvedLid) {
+              lid = resolvedLid;
             }
-          } else {
-            finalMentions.push(jid);
           }
+
+          finalMentions.push(realJid);
+          if (lid !== realJid) {
+            finalMentions.push(lid);
+          }
+
+          const realNum = realJid.split('@')[0];
+          const lidNum = lid.split('@')[0];
+          updatedCaption = updatedCaption.replace(new RegExp(`@${realNum}\\b`, 'g'), `@${lidNum}`);
         }
 
         const uniqueMentions = Array.from(new Set(finalMentions.filter(Boolean)));
