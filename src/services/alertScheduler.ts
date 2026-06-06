@@ -4,7 +4,14 @@ import { LidMapService } from './lidMap';
 
 const whatsapp = new WhatsAppService();
 
+let isCheckRunning = false;
+
 export async function checkScheduledAlerts() {
+  if (isCheckRunning) {
+    return;
+  }
+  isCheckRunning = true;
+
   try {
     const now = new Date();
     // Buscar todos os grupos no banco
@@ -38,9 +45,10 @@ export async function checkScheduledAlerts() {
 
       const lastSent = alert.lastSent ? new Date(alert.lastSent) : new Date(0);
       const nextTrigger = lastSent.getTime() + intervalMs;
+      const secondsLeft = Math.round((nextTrigger - now.getTime()) / 1000);
 
       if (now.getTime() >= nextTrigger) {
-        console.log(`[SCHEDULER] Disparando alerta programado para o grupo ${group.jid}`);
+        console.log(`[SCHEDULER] 🚀 Disparando alerta programado para o grupo ${group.jid}. Intervalo: ${alert.intervalText || intervalMs + 'ms'}`);
 
         // Sincroniza participantes para marcar todo mundo silenciosamente
         await whatsapp.syncGroupParticipants(group.jid);
@@ -75,10 +83,19 @@ export async function checkScheduledAlerts() {
           where: { id: group.id },
           data: { settings: settings as any }
         });
+        
+        console.log(`[SCHEDULER] ✅ Alerta enviado e agendamento atualizado para o grupo ${group.jid}`);
+      } else {
+        // Log sutil para depuração se for intervalo curto
+        if (intervalMs <= 60000) {
+          console.log(`[SCHEDULER] Grupo ${group.jid} - Próximo disparo em ${secondsLeft}s`);
+        }
       }
     }
   } catch (error) {
     console.error('[SCHEDULER ERROR]:', error);
+  } finally {
+    isCheckRunning = false;
   }
 }
 
