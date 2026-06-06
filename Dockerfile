@@ -50,4 +50,4 @@ COPY --from=builder /app/assets ./assets
 
 EXPOSE 3000
 
-CMD sh -c "npx prisma db push --accept-data-loss || echo '[ROBOZAP] prisma db push falhou, subindo mesmo assim'; exec npm start"
+CMD ["sh", "-c", "unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy && (npx prisma db push --accept-data-loss || echo '[ROBOZAP] prisma db push falhou, subindo mesmo assim') && exec npm start"]
