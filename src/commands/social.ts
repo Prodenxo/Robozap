@@ -220,16 +220,20 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
           vao.map(async (p: any) => {
             const resolvedJid = LidMapService.get(p.participant.userJid) || p.participant.userJid;
             const name = await whatsapp.resolveName(resolvedJid, msg.remoteJid);
-            const number = resolvedJid.split('@')[0];
-            return `${name} (${number})`;
+            if (resolvedJid.endsWith('@lid')) return name;
+            let num = resolvedJid.split('@')[0];
+            if (num.startsWith('55') && num.length > 10) num = num.substring(2);
+            return `${name} (${num})`;
           })
         );
         const nvaoNames = await Promise.all(
           nvao.map(async (p: any) => {
             const resolvedJid = LidMapService.get(p.participant.userJid) || p.participant.userJid;
             const name = await whatsapp.resolveName(resolvedJid, msg.remoteJid);
-            const number = resolvedJid.split('@')[0];
-            return `${name} (${number})`;
+            if (resolvedJid.endsWith('@lid')) return name;
+            let num = resolvedJid.split('@')[0];
+            if (num.startsWith('55') && num.length > 10) num = num.substring(2);
+            return `${name} (${num})`;
           })
         );
 
@@ -301,16 +305,20 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
             vao.map(async (p: any) => {
               const resolvedJid = LidMapService.get(p.participant.userJid) || p.participant.userJid;
               const name = await whatsapp.resolveName(resolvedJid, msg.remoteJid);
-              const number = resolvedJid.split('@')[0];
-              return `${name} (${number})`;
+              if (resolvedJid.endsWith('@lid')) return name;
+              let num = resolvedJid.split('@')[0];
+              if (num.startsWith('55') && num.length > 10) num = num.substring(2);
+              return `${name} (${num})`;
             })
           );
           const nvaoNames = await Promise.all(
             nvao.map(async (p: any) => {
               const resolvedJid = LidMapService.get(p.participant.userJid) || p.participant.userJid;
               const name = await whatsapp.resolveName(resolvedJid, msg.remoteJid);
-              const number = resolvedJid.split('@')[0];
-              return `${name} (${number})`;
+              if (resolvedJid.endsWith('@lid')) return name;
+              let num = resolvedJid.split('@')[0];
+              if (num.startsWith('55') && num.length > 10) num = num.substring(2);
+              return `${name} (${num})`;
             })
           );
 
