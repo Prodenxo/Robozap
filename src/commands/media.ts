@@ -96,19 +96,28 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
           const botJid = await whatsapp.getBotJid();
           const isQuotedFromMe = isQuoted && msg.quotedParticipant === botJid;
 
-          const key = {
+          const key: any = {
               id: targetMessageId,
               remoteJid: msg.remoteJid,
               fromMe: isQuotedFromMe
           };
 
-          console.log(`[MEDIA] .fig command. Target ID: ${targetMessageId}, IsQuoted: ${isQuoted}, initial fromMe: ${key.fromMe}`);
+          if (isQuoted && msg.quotedParticipant && msg.remoteJid.endsWith('@g.us') && !isQuotedFromMe) {
+              key.participant = msg.quotedParticipant;
+          }
+
+          console.log(`[MEDIA] .fig command. Target ID: ${targetMessageId}, IsQuoted: ${isQuoted}, initial fromMe: ${key.fromMe}, participant: ${key.participant}`);
           
           let base64 = await whatsapp.getBase64FromMessage(key);
           if (!base64) {
             // Se falhar, tenta com o valor oposto de fromMe
             console.log(`[MEDIA] Falha ao obter base64 com fromMe: ${key.fromMe}. Tentando o oposto...`);
             key.fromMe = !key.fromMe;
+            if (key.fromMe) {
+              delete key.participant;
+            } else if (isQuoted && msg.quotedParticipant && msg.remoteJid.endsWith('@g.us')) {
+              key.participant = msg.quotedParticipant;
+            }
             base64 = await whatsapp.getBase64FromMessage(key);
           }
 
