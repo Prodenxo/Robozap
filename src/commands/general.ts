@@ -27,15 +27,14 @@ export const handleGeneralCommands = async (command: string, args: string[], msg
 
         let recentLogs: any[] = [];
         if (group) {
-          const targetUser = msg.quotedParticipant || msg.participant;
           recentLogs = await prisma.messageLog.findMany({
             where: {
-              groupId: group.id,
-              userJid: targetUser
+              groupId: group.id
             },
             orderBy: { createdAt: 'desc' },
             take: 20,
             select: {
+              userJid: true,
               messageId: true,
               content: true,
               type: true,
