@@ -3,7 +3,6 @@ dist
 temp
 temp_*
 *.log
-.env
 cookies.txt
 cookies.json
 .DS_Store
@@ -11,3 +10,4 @@ cookies.json
 # Prisma
 /prisma/migrations
 /src/generated/prisma
+.env
