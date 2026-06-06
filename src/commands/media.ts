@@ -198,6 +198,179 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
       }
       return true;
 
+    case 'brat': {
+      let text = args.join(' ').trim();
+      if (!text && msg.quoted) {
+        text = msg.quoted.conversation || msg.quoted.extendedTextMessage?.text || '';
+      }
+
+      if (!text) {
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '🖤 *BRAT STICKER*\n\nComo usar: `.brat seu texto aqui` ou cite uma mensagem com `.brat`.'
+        );
+        return true;
+      }
+
+      try {
+        const res = await axios.get(`https://skyzxu-brat.hf.space/brat`, {
+          params: { text },
+          responseType: 'arraybuffer'
+        });
+        const base64 = Buffer.from(res.data, 'binary').toString('base64');
+        await whatsapp.sendSticker(msg.remoteJid, base64);
+      } catch (error) {
+        console.error('[MEDIA] Brat error:', error);
+        await whatsapp.sendMessage(msg.remoteJid, '⚠️ Erro ao gerar figurinha Brat.');
+      }
+      return true;
+    }
+
+    case 'bratv': {
+      let text = args.join(' ').trim();
+      if (!text && msg.quoted) {
+        text = msg.quoted.conversation || msg.quoted.extendedTextMessage?.text || '';
+      }
+
+      if (!text) {
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '🖤 *BRAT STICKER ANIMADO*\n\nComo usar: `.bratv seu texto aqui` ou cite uma mensagem com `.bratv`.'
+        );
+        return true;
+      }
+
+      try {
+        const res = await axios.get(`https://skyzxu-brat.hf.space/brat-animated`, {
+          params: { text },
+          responseType: 'arraybuffer'
+        });
+        const base64 = Buffer.from(res.data, 'binary').toString('base64');
+        await whatsapp.sendSticker(msg.remoteJid, base64);
+      } catch (error) {
+        console.error('[MEDIA] Bratv error:', error);
+        await whatsapp.sendMessage(msg.remoteJid, '⚠️ Erro ao gerar figurinha Brat animada.');
+      }
+      return true;
+    }
+
+    case 'emojimix':
+    case 'mix': {
+      let input = args.join('').trim();
+      let emoji1 = '';
+      let emoji2 = '';
+
+      if (input.includes('+')) {
+        const parts = input.split('+');
+        emoji1 = parts[0]?.trim();
+        emoji2 = parts[1]?.trim();
+      } else {
+        const emojis = Array.from(input);
+        if (emojis.length >= 2) {
+          emoji1 = emojis[0];
+          emoji2 = emojis[1];
+        }
+      }
+
+      if (!emoji1 || !emoji2) {
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '🎨 *EMOJI MIX*\n\nComo usar: `.emojimix 👻+👀` ou `.emojimix 👻👀` para misturar dois emojis.'
+        );
+        return true;
+      }
+
+      try {
+        const url = `https://tenor.googleapis.com/v2/featured?key=AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ&contentfilter=high&media_filter=png_transparent&component=proactive&collection=emoji_kitchen_v5&q=${encodeURIComponent(emoji1)}_${encodeURIComponent(emoji2)}`;
+        const response = await axios.get(url);
+        const results = response.data?.results;
+        if (results && results.length > 0) {
+          const imageUrl = results[0].media_formats?.png_transparent?.url || results[0].url || '';
+          if (imageUrl) {
+            const imageRes = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+            const base64 = Buffer.from(imageRes.data, 'binary').toString('base64');
+            await whatsapp.sendSticker(msg.remoteJid, base64);
+          } else {
+            throw new Error('No image URL in results');
+          }
+        } else {
+          await whatsapp.sendMessage(msg.remoteJid, '❌ Mistura de emojis não encontrada.');
+        }
+      } catch (error) {
+        console.error('[MEDIA] Emojimix error:', error);
+        await whatsapp.sendMessage(msg.remoteJid, '⚠️ Erro ao misturar os emojis.');
+      }
+      return true;
+    }
+
+    case 'qc':
+    case 'quote': {
+      let text = args.join(' ').trim();
+      let targetJid = msg.sender;
+
+      if (!text && msg.quoted) {
+        text = msg.quoted.conversation || msg.quoted.extendedTextMessage?.text || '';
+        targetJid = msg.quoted.sender || msg.sender;
+      }
+
+      if (!text) {
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '💬 *QUOTE STICKER*\n\nComo usar: `.qc seu texto` ou cite uma mensagem com `.qc` para gerar uma figurinha de citação.'
+        );
+        return true;
+      }
+
+      if (text.length > 150) {
+        await whatsapp.sendMessage(msg.remoteJid, '⚠️ *Texto muito longo!* Limite de 150 caracteres para legibilidade.');
+        return true;
+      }
+
+      try {
+        const ppUrl = await whatsapp.getProfilePictureUrl(targetJid) || 'https://telegra.ph/file/24fa902ead26340f3df2c.png';
+        const senderName = await whatsapp.resolveName(targetJid, msg.remoteJid);
+
+        const quoteObj = {
+          type: 'quote',
+          format: 'png',
+          backgroundColor: '#121b22', // WhatsApp Dark Mode
+          width: 512,
+          height: 768,
+          scale: 2,
+          messages: [
+            {
+              entities: [],
+              avatar: true,
+              from: {
+                id: 1,
+                name: senderName,
+                photo: {
+                  url: ppUrl
+                }
+              },
+              text: text,
+              replyMessage: {}
+            }
+          ]
+        };
+
+        const quoteRes = await axios.post('https://bot.lyo.su/quote/generate', quoteObj, {
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const base64 = quoteRes.data?.result?.image;
+        if (base64) {
+          await whatsapp.sendSticker(msg.remoteJid, base64);
+        } else {
+          throw new Error('Failed to generate quote image');
+        }
+      } catch (error) {
+        console.error('[MEDIA] QC error:', error);
+        await whatsapp.sendMessage(msg.remoteJid, '⚠️ Erro ao gerar figurinha de citação.');
+      }
+      return true;
+    }
+
     case 'musica':
     case 'tocar':
       if (args.length === 0) {

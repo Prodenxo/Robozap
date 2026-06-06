@@ -42,38 +42,63 @@ export const handleGeneralCommands = async (command: string, args: string[], msg
     case 'menu':
     case 'ajuda':
     case 'comandos':
-      const menuText = `🌟 *ROBOZAP - Menu de Mandamentos* 🌟
+      const menuText = `🌟 *ROBOZAP - MENU DE MANDAMENTOS* 🌟
 
 🔥 *DE CRIA (IA)*
 🤖 *.filhote* [pergunta] - Troca ideia com o brabo.
-🧐 *.resumir* - Pega a visão da conversa.
+🧐 *.resumir* - Pega a visão das últimas mensagens.
 
-🖼️ *MÍDIA (BRABA)*
-🖼️ *.fig* - Faz figurinha na hora (mande ou responda foto).
-🎵 *.tocar* [nome] - Baixa a música do YouTube.
-📻 *.radio* - Pega o link da playlist.
+🖼️ *MÍDIA & FIGURINHAS*
+🖼️ *.fig* - Faz figurinha de imagem, gif ou vídeo.
+✍️ *.brat* [texto] - Cria sticker de texto clássico.
+🎬 *.bratv* [texto] - Cria sticker de texto animado.
+🎨 *.emojimix* / *.mix* [👻+👀] - Combina dois emojis.
+💬 *.qc* / *.quote* [texto] - Cria sticker de citação de chat.
+🎵 *.tocar* / *.musica* [nome] - Baixa áudio do YouTube.
+🎥 *.igdl* / *.instadl* [link] - Baixa vídeo do Instagram.
+🎥 *.fbdl* [link] - Baixa vídeo do Facebook.
+🎥 *.tkdl* [link] - Baixa vídeo do TikTok.
+🎥 *.ytdl* [link] - Baixa vídeo do YouTube.
 
-👑 *ADMIN (DONO DO MORRO)*
-👑 *.promover* - Dá cargo de admin (responda alguém).
-🧹 *.banir* / *.remover* - Vala no infeliz do grupo.
-📉 *.rebaixar* - Tira o cargo de quem tá folgado.
-⚠️ *.adv* - Manda o papo reto com advertência.
+👑 *ADMINISTRAÇÃO*
+👑 *.admins* - Marca os administradores do grupo.
+⚡ *.promover* - Dá cargo de admin (responda alguém).
+📉 *.rebaixar* / *.demitir* - Tira o cargo de admin.
+🧹 *.banir* / *.remover* - Bane um infeliz do grupo.
+🔓 *.desban* - Desbane um usuário.
+⚠️ *.adv* - Dá advertência a um integrante.
+🗑️ *.apagar* - Apaga uma mensagem (responda a ela).
+🔓 *.abrir* / *.fechar* - Controla quem pode mandar msg.
+📊 *.ativos* / *.inativos* - Lista ranking de atividade.
 
-🎲 *DIVERSÃO (ZEBRA)*
-🎲 *.sortear* [número] - Sorteia a rapaziada do grupo.
+🎲 *DIVERSÃO & JOGOS*
+🎲 *.sortear* - Sorteia a rapaziada do grupo.
 🎯 *.chance* [pergunta] - Vê a chance de dar bom.
+🔍 *.detector* - Testa se o papo é verdade ou caô.
+💘 *.casal* - Sorteia um casal aleatório do grupo.
+🍻 *.bafometro* - Mede a cachaça do cidadão.
+📏 *.viadometro* / *.gadometro* - Mede a porcentagem.
 🎲 *.dado* / *.moeda* - Joga a sorte pro alto.
+📖 *.versiculo* / *.biblia* - Manda uma palavra sagrada.
+🍀 *.sortedodia* - Vê tua sorte de hoje.
 
 📱 *PERFIL (MEUS DADOS)*
-👤 *.meusdados* - Vê teu status no grupo.
-🗓️ *.vencimento* - Vê como tá tua assinatura.
-📝 *.bio* [texto] - Muda teu recado pro robô.
-🎂 *.niver* [DD/MM] - Marca teu aniversário.
+👤 *.meusdados* / *.perfil* - Vê teu status no grupo.
+🗓️ *.vencimento* - Consulta a validade da assinatura.
+📝 *.bio* [texto] - Muda tua biografia no robô.
+🎂 *.niver* [DD/MM] - Define a data do teu aniversário.
+🎈 *.nivers* - Vê os aniversariantes do grupo.
+📸 *.meuig* [user] - Cadastra o teu Instagram.
+📍 *.local* [lugar] - Cadastra tua cidade.
+📸 *.iglist* / *.locallist* - Lista cadastros da tropa.
+📻 *.radio* / *.playlist* - Playlist oficial da tropa.
+🤫 *.meignore* - Faz o bot ignorar tuas mensagens.
 
-📍 *SOCIAL*
-📸 *.ig* [user] - Salva teu Instagram.
-📍 *.local* [lugar] - Salva de onde tu é.
-🎉 *.roles* - Lista os rolês marcados.
+📅 *ROLÊS & RESENHAS*
+🍻 *.role.criar* [Nome] - Agenda um novo rolê.
+🎉 *.roles* / *.resenha* - Mostra os rolês marcados.
+✅ *.vou* / *.nvou* - Confirma ou cancela presença.
+🏁 *.role.encerrar* - Fecha as inscrições do rolê.
 
 _Dúvidas? Mande um zap pro Mohammed._`;
       

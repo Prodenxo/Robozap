@@ -118,6 +118,12 @@ export const COMMAND_MAP: Record<string, Function> = {
   'yt': handleMediaCommands,
   'ytdl': handleMediaCommands,
   'fig': handleMediaCommands,
+  'brat': handleMediaCommands,
+  'bratv': handleMediaCommands,
+  'emojimix': handleMediaCommands,
+  'mix': handleMediaCommands,
+  'qc': handleMediaCommands,
+  'quote': handleMediaCommands,
   'transcrever': handleMediaCommands,
   'ouvir': handleMediaCommands,
 

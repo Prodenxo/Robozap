@@ -207,6 +207,19 @@ export class WhatsAppService {
     }
   }
 
+  async getProfilePictureUrl(jid: string): Promise<string> {
+    try {
+      const number = jid.split('@')[0];
+      const response = await axios.get(`${this.baseUrl}/chat/profilePicture/${this.instance}?number=${number}`, {
+        headers: this.headers
+      });
+      return response.data?.profilePictureUrl || response.data?.url || '';
+    } catch (error: any) {
+      console.warn('[WHATSAPP] Error fetching profile picture:', error.response?.data || error.message);
+      return '';
+    }
+  }
+
   private botJid: string | null = null;
 
   async getBotJid(): Promise<string> {
