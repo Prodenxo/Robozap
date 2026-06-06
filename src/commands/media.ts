@@ -51,6 +51,7 @@ async function decryptMediaLocally(targetMedia: any): Promise<string | null> {
     };
 
     console.log(`[DECRYPT] Tentando descriptografar mídia localmente. Mimetype: ${decryptPayload.mimetype}, Type: ${decryptPayload.type}`);
+    console.log(`[DECRYPT] Payload: ${JSON.stringify(decryptPayload)}`);
     const buffer = await decryptMedia(decryptPayload);
     if (buffer && buffer.length > 0) {
       console.log(`[DECRYPT] Sucesso na descriptografia local! Tamanho: ${buffer.length}`);
