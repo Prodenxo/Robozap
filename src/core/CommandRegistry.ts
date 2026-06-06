@@ -147,6 +147,9 @@ export const COMMAND_MAP: Record<string, Function> = {
   'abrir': handleAdminCommands,
   'fechar': handleAdminCommands,
   'modoadmin': handleAdminCommands,
+  'zerar': handleAdminCommands,
+  'zerar.logs': handleAdminCommands,
+  'limpar.logs': handleAdminCommands,
 
   // TESTES
   'debug': handleGeneralCommands,

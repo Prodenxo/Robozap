@@ -291,12 +291,6 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         return jid;
       };
 
-      // Construir mapa reverso: realJid -> lid (para consolidar contagens)
-      const reverseMap: Record<string, string> = {};
-      for (const [lid, real] of Object.entries(fullLidMap)) {
-        reverseMap[real] = lid;
-      }
-
       // Consolidar contagens por JID canônico (junta LID + JID real)
       const countMap = new Map<string, number>();
       for (const log of activeLogs) {
@@ -325,16 +319,8 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         if (seenCanonical.has(canonicalJid)) continue;
         seenCanonical.add(canonicalJid);
 
-        // Somar contagens do JID real E do LID correspondente
-        let count = countMap.get(canonicalJid) || 0;
-        // Se o canonical é um JID real, verificar se existe contagem pelo LID correspondente
-        if (canonicalJid.endsWith('@s.whatsapp.net') && reverseMap[canonicalJid]) {
-          count += countMap.get(reverseMap[canonicalJid]) || 0;
-        }
-        // Se o canonical ainda é um LID (não resolvido), verificar contagens pelo JID original do participante
-        if (p.userJid !== canonicalJid) {
-          count += countMap.get(p.userJid) || 0;
-        }
+        // Obter contagem consolidada
+        const count = countMap.get(canonicalJid) || 0;
 
         if (count < 50) {
           inactiveUsers.push({ userJid: canonicalJid, count });
@@ -393,6 +379,30 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       
       const number = user.split('@')[0];
       await whatsapp.sendMessage(msg.remoteJid, `📊 @${number} enviou *${count} mensagens* nos últimos 7 dias neste grupo.`, [user]);
+      return true;
+    }
+
+    case 'zerar':
+    case 'zerar.logs':
+    case 'limpar.logs': {
+      const group = await (prisma as any).group.findUnique({
+        where: { jid: msg.remoteJid }
+      });
+      if (!group) {
+        await whatsapp.sendMessage(msg.remoteJid, "❌ Grupo não inicializado no banco.");
+        return true;
+      }
+
+      await (prisma as any).messageLog.deleteMany({
+        where: { groupId: group.id }
+      });
+
+      await (prisma as any).groupParticipant.updateMany({
+        where: { groupId: group.id },
+        data: { messagesSent: 0 }
+      });
+
+      await whatsapp.sendMessage(msg.remoteJid, "🧹 *Logs de mensagens zerados com sucesso para este grupo!*");
       return true;
     }
 
