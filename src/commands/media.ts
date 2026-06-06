@@ -92,34 +92,13 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
           
           if (!targetMessageId) throw new Error('No message ID found for media');
 
-          // Tenta adivinhar se a mensagem citada é do próprio bot
-          const botJid = await whatsapp.getBotJid();
-          const isQuotedFromMe = isQuoted && msg.quotedParticipant === botJid;
-
-          const key: any = {
-              id: targetMessageId,
-              remoteJid: msg.remoteJid,
-              fromMe: isQuotedFromMe
+          const key = {
+              id: targetMessageId
           };
 
-          if (isQuoted && msg.quotedParticipant && msg.remoteJid.endsWith('@g.us') && !isQuotedFromMe) {
-              key.participant = msg.quotedParticipant;
-          }
-
-          console.log(`[MEDIA] .fig command. Target ID: ${targetMessageId}, IsQuoted: ${isQuoted}, initial fromMe: ${key.fromMe}, participant: ${key.participant}`);
+          console.log(`[MEDIA] .fig command. Target ID: ${targetMessageId}, IsQuoted: ${isQuoted}`);
           
-          let base64 = await whatsapp.getBase64FromMessage(key);
-          if (!base64) {
-            // Se falhar, tenta com o valor oposto de fromMe
-            console.log(`[MEDIA] Falha ao obter base64 com fromMe: ${key.fromMe}. Tentando o oposto...`);
-            key.fromMe = !key.fromMe;
-            if (key.fromMe) {
-              delete key.participant;
-            } else if (isQuoted && msg.quotedParticipant && msg.remoteJid.endsWith('@g.us')) {
-              key.participant = msg.quotedParticipant;
-            }
-            base64 = await whatsapp.getBase64FromMessage(key);
-          }
+          const base64 = await whatsapp.getBase64FromMessage(key);
 
           if (base64) {
             await whatsapp.sendSticker(msg.remoteJid, base64);
