@@ -9,12 +9,16 @@ COPY prisma ./prisma
 
 # Dummy DATABASE_URL for prisma generate during build
 ENV DATABASE_URL="mysql://root:password@localhost:3306/db"
+ENV CHECKPOINT_DISABLE=1
+ENV PRISMA_HIDE_UPDATE_MESSAGE=1
 
 RUN npm install --legacy-peer-deps
 
+# Generate Prisma Client (running with unset proxies to prevent SOCKS5 errors and caching optimized)
+RUN export HTTP_PROXY= HTTPS_PROXY= http_proxy= https_proxy= && ./node_modules/.bin/prisma generate
+
 # Copy source and build
 COPY . .
-RUN npx prisma generate
 RUN npm run build
 
 # Production stage
