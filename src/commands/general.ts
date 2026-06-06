@@ -16,10 +16,33 @@ export const handleGeneralCommands = async (command: string, args: string[], msg
           lidMap = JSON.parse(fs.readFileSync(MAP_FILE, 'utf-8'));
         }
 
+        const group = await prisma.group.findUnique({
+          where: { jid: msg.remoteJid }
+        });
+
         const participants = await prisma.groupParticipant.findMany({
           where: { group: { jid: msg.remoteJid } },
           select: { userJid: true, roleCode: true }
         });
+
+        let recentLogs: any[] = [];
+        if (group) {
+          const targetUser = msg.quotedParticipant || msg.participant;
+          recentLogs = await prisma.messageLog.findMany({
+            where: {
+              groupId: group.id,
+              userJid: targetUser
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 20,
+            select: {
+              messageId: true,
+              content: true,
+              type: true,
+              createdAt: true
+            }
+          });
+        }
 
         const debugInfo = {
           msg: {
@@ -29,7 +52,8 @@ export const handleGeneralCommands = async (command: string, args: string[], msg
             mentionedJid: msg.mentionedJid
           },
           lidMap,
-          participants
+          participants,
+          recentLogs
         };
 
         await whatsapp.sendMessage(msg.remoteJid, `⚙️ *DEBUG INFO* ⚙️\n\`\`\`json\n${JSON.stringify(debugInfo, null, 2)}\n\`\`\``);
