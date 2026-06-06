@@ -214,6 +214,7 @@ export class WhatsAppService {
 
   async getProfilePictureUrl(jid: string): Promise<string> {
     try {
+      if (!jid || typeof jid !== 'string') return '';
       const number = jid.split('@')[0];
       const response = await axios.get(`${this.baseUrl}/chat/profilePicture/${this.instance}?number=${number}`, {
         headers: this.headers
@@ -533,6 +534,7 @@ export class WhatsAppService {
   }
 
   async resolveName(jid: string, groupJid?: string) {
+    if (!jid || typeof jid !== 'string') return 'Usuário';
     const number = jid.split('@')[0];
     
     // 1. Check Database

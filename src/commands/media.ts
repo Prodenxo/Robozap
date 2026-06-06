@@ -5,6 +5,38 @@ import { botTexts } from '../config/texts';
 import axios from 'axios';
 import path from 'path';
 import fs from 'fs';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import crypto from 'crypto';
+
+const execAsync = promisify(exec);
+
+async function convertMp4ToWebpSticker(mp4Buffer: Buffer): Promise<Buffer> {
+  const tmpDir = path.join(process.cwd(), 'tmp');
+  if (!fs.existsSync(tmpDir)) {
+    fs.mkdirSync(tmpDir, { recursive: true });
+  }
+  const uniqueId = crypto.randomBytes(8).toString('hex');
+  const inputPath = path.join(tmpDir, `input_${uniqueId}.mp4`);
+  const outputPath = path.join(tmpDir, `output_${uniqueId}.webp`);
+
+  try {
+    await fs.promises.writeFile(inputPath, mp4Buffer);
+
+    // Converter MP4/GIF para WebP animado compatível com figurinhas do WhatsApp
+    const cmd = `ffmpeg -y -i "${inputPath}" -vcodec libwebp -filter_complex "[0:v] scale=512:512:force_original_aspect_ratio=decrease,fps=15,pad=512:512:(512-iw)/2:(512-ih)/2:color=black@0" -loop 0 -an -vsync 0 "${outputPath}"`;
+    await execAsync(cmd);
+
+    return await fs.promises.readFile(outputPath);
+  } finally {
+    try {
+      if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+    } catch {}
+    try {
+      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    } catch {}
+  }
+}
 
 function wrapText(text: string, maxCharsPerLine: number = 15): string {
   const words = text.split(' ');
@@ -177,6 +209,13 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
           }
 
           if (base64) {
+            const mimeType = targetMedia.mimetype || '';
+            if (mimeType.startsWith('video/') || mimeType === 'image/gif') {
+              console.log(`[MEDIA] Sucesso na obtenção da mídia, convertendo vídeo/GIF (${mimeType}) para figurinha WebP`);
+              const mp4Buffer = Buffer.from(base64, 'base64');
+              const webpBuffer = await convertMp4ToWebpSticker(mp4Buffer);
+              base64 = webpBuffer.toString('base64');
+            }
             await whatsapp.sendSticker(msg.remoteJid, base64);
           } else {
             throw new Error('Failed to fetch base64 from message (Message not found)');
@@ -245,8 +284,9 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
           params: { text },
           responseType: 'arraybuffer'
         });
-        const base64 = Buffer.from(res.data, 'binary').toString('base64');
-        await whatsapp.sendSticker(msg.remoteJid, base64);
+        const mp4Buffer = Buffer.from(res.data, 'binary');
+        const webpBuffer = await convertMp4ToWebpSticker(mp4Buffer);
+        await whatsapp.sendSticker(msg.remoteJid, webpBuffer);
       } catch (error) {
         console.error('[MEDIA] Bratv error:', error);
         await whatsapp.sendMessage(msg.remoteJid, '⚠️ Erro ao gerar figurinha Brat animada.');
@@ -306,11 +346,17 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
     case 'qc':
     case 'quote': {
       let text = args.join(' ').trim();
-      let targetJid = msg.sender;
+      let targetJid = msg.participant;
 
-      if (!text && msg.quoted) {
-        text = msg.quoted.conversation || msg.quoted.extendedTextMessage?.text || '';
-        targetJid = msg.quoted.sender || msg.sender;
+      if (msg.quoted) {
+        targetJid = msg.quotedParticipant || msg.participant;
+        if (!text) {
+          text = msg.quoted.conversation || 
+                 msg.quoted.extendedTextMessage?.text || 
+                 msg.quoted.imageMessage?.caption || 
+                 msg.quoted.videoMessage?.caption || 
+                 '';
+        }
       }
 
       if (!text) {
