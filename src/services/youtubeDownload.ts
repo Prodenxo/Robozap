@@ -1,5 +1,4 @@
 import axios from 'axios';
-import ytdl from '@distube/ytdl-core';
 import { exec } from 'child_process';
 import { createWriteStream } from 'fs';
 import fs from 'fs';
@@ -386,35 +385,6 @@ async function tryCobaltDownload (
   throw lastError ?? new Error('Nenhum endpoint Cobalt respondeu.');
 }
 
-async function tryYtdlCoreDownload (
-  url: string,
-  outputPath: string
-): Promise<void> {
-  console.log(`[YTDl-CORE] Tentando stream direto: ${url}`);
-
-  const info = await ytdl.getInfo(url);
-  const format = ytdl.chooseFormat(info.formats, {
-    quality: 'highestaudio',
-    filter: 'audioonly'
-  });
-
-  if (!format) {
-    throw new Error('Nenhum formato de áudio disponível');
-  }
-
-  const rawPath = outputPath.replace(/\.mp3$/i, '_ytdl.webm');
-  await pipeline(
-    ytdl.downloadFromInfo(info, { format }),
-    createWriteStream(rawPath)
-  );
-
-  if (!fs.existsSync(rawPath) || fs.statSync(rawPath).size === 0) {
-    throw new Error('Stream vazio');
-  }
-
-  await convertToMp3(rawPath, outputPath);
-  console.log('[YTDl-CORE] Sucesso');
-}
 
 interface InvidiousFormat {
   url?: string;
@@ -491,7 +461,6 @@ export async function downloadYouTubeAudioProxy (
   const steps: Array<{ name: string; run: () => Promise<void> }> = [
     { name: 'cobalt', run: () => tryCobaltDownload(url, outputPath) },
     { name: 'piped', run: () => tryPipedRace(videoId, outputPath) },
-    { name: 'ytdl-core', run: () => tryYtdlCoreDownload(url, outputPath) },
     { name: 'invidious', run: () => tryInvidiousDownload(videoId, outputPath) }
   ];
 

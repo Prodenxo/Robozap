@@ -2,7 +2,7 @@ import { WhatsAppService } from '../services/whatsapp';
 import { MediaService } from '../services/media';
 import { tryAcquireMusicLock, releaseMusicLock } from '../services/musicLock';
 import { botTexts } from '../config/texts';
-import ytdl from '@distube/ytdl-core';
+
 import path from 'path';
 import fs from 'fs';
 
@@ -91,7 +91,8 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
         );
 
         let url = musicQuery;
-        if (!ytdl.validateURL(musicQuery)) {
+        const isYouTubeUrl = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be|music\.youtube\.com)\//.test(musicQuery);
+        if (!isYouTubeUrl) {
           url = await media.searchYouTube(musicQuery) || '';
         }
 

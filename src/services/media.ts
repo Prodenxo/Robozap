@@ -3,6 +3,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
+import axios from 'axios';
 import {
   downloadYouTubeAudioProxy,
   enqueueYouTubeDownload
@@ -17,111 +18,37 @@ interface YtDlpStrategy {
   extraArgs: string
 }
 
-function ensureCookiesFile (): string | null {
-  try {
-    const fromEnv = process.env.YOUTUBE_COOKIES_PATH?.trim()
-    if (fromEnv && fs.existsSync(fromEnv) && fs.statSync(fromEnv).size > 0) {
-      return fromEnv
-    }
-
-    const cookiesTxtPath = path.join(process.cwd(), 'cookies.txt')
-
-    // 1. Verificar se os cookies foram passados diretamente por variável de ambiente YOUTUBE_COOKIES
-    const rawCookiesEnv = process.env.YOUTUBE_COOKIES?.trim()
-    if (rawCookiesEnv && rawCookiesEnv.length > 0) {
-      console.log('[COOKIES] Detectada variável YOUTUBE_COOKIES. Gerando cookies.txt...')
-      const lines = [
-        '# Netscape HTTP Cookie File',
-        '# http://curl.haxx.se/rfc/cookie_spec.html',
-        '# This is a generated file! Do not edit.',
-        ''
-      ]
-      const parts = rawCookiesEnv.split(';')
-      for (const part of parts) {
-        const trimmed = part.trim()
-        if (!trimmed) continue
-        const eqIdx = trimmed.indexOf('=')
-        if (eqIdx === -1) continue
-        const name = trimmed.substring(0, eqIdx)
-        const value = trimmed.substring(eqIdx + 1)
-        
-        const domain = '.youtube.com'
-        const flag = 'TRUE'
-        const pathVal = '/'
-        const secure = 'TRUE'
-        const expiration = '2000000000' // Ano 2033
-        
-        lines.push([domain, flag, pathVal, secure, expiration, name, value].join('\t'))
-      }
-      fs.writeFileSync(cookiesTxtPath, lines.join('\n'), 'utf8')
-      console.log('[COOKIES] cookies.txt gerado com sucesso a partir da variável YOUTUBE_COOKIES!')
-      return cookiesTxtPath
-    }
-
-    // 2. Se cookies.txt já existe na raiz e tem tamanho maior que zero, retornamos ele
-    if (fs.existsSync(cookiesTxtPath) && fs.statSync(cookiesTxtPath).size > 0) {
-      return cookiesTxtPath
-    }
-
-    // 3. Se cookies.json existe, vamos ler e converter
-    const cookiesJsonPath = path.join(process.cwd(), 'cookies.json')
-    if (fs.existsSync(cookiesJsonPath)) {
-      console.log('[COOKIES] Encontrado cookies.json. Iniciando conversão para formato Netscape...')
-      const content = fs.readFileSync(cookiesJsonPath, 'utf8')
-      const data = JSON.parse(content)
-      const youtubeData = data?.youtube
-      let cookieStr = ''
-      
-      if (Array.isArray(youtubeData)) {
-        cookieStr = youtubeData[0] || ''
-      } else if (typeof youtubeData === 'string') {
-        cookieStr = youtubeData
-      }
-
-      if (cookieStr && cookieStr.trim().length > 0) {
-        const lines = [
-          '# Netscape HTTP Cookie File',
-          '# http://curl.haxx.se/rfc/cookie_spec.html',
-          '# This is a generated file! Do not edit.',
-          ''
-        ]
-        const parts = cookieStr.split(';')
-        for (const part of parts) {
-          const trimmed = part.trim()
-          if (!trimmed) continue
-          const eqIdx = trimmed.indexOf('=')
-          if (eqIdx === -1) continue
-          const name = trimmed.substring(0, eqIdx)
-          const value = trimmed.substring(eqIdx + 1)
-          
-          const domain = '.youtube.com'
-          const flag = 'TRUE'
-          const pathVal = '/'
-          const secure = 'TRUE'
-          const expiration = '2000000000' // Ano 2033
-          
-          lines.push([domain, flag, pathVal, secure, expiration, name, value].join('\t'))
-        }
-        
-        fs.writeFileSync(cookiesTxtPath, lines.join('\n'), 'utf8')
-        console.log('[COOKIES] Convertido cookies.json para cookies.txt com sucesso!')
-        return cookiesTxtPath
-      } else {
-        console.warn('[COOKIES] O cookies.json foi encontrado, mas a chave "youtube" estava vazia ou inválida.')
-      }
-    }
-  } catch (error) {
-    console.error('[COOKIES] Erro ao obter cookies:', error)
-  }
-
-  return null
+interface YtSessionResponse {
+  poToken?: string;
+  po_token?: string;
+  visitorData?: string;
+  visitor_data?: string;
 }
 
-function getCookiesPath (): string | null {
-  if (process.env.YOUTUBE_USE_COOKIES === 'false') {
-    return null
+async function fetchYtSessionTokens(): Promise<{ poToken: string; visitorData: string } | null> {
+  const urls = [
+    'http://yt-session:8080/token',
+    'http://yt-session:8080/'
+  ];
+
+  for (const url of urls) {
+    try {
+      console.log(`[YT-SESSION] Tentando obter session tokens de: ${url}`);
+      const response = await axios.get<YtSessionResponse>(url, { timeout: 3000 });
+      const poToken = response.data?.poToken || response.data?.po_token;
+      const visitorData = response.data?.visitorData || response.data?.visitor_data;
+
+      if (poToken && visitorData) {
+        console.log('[YT-SESSION] Session tokens obtidos com sucesso!');
+        return { poToken, visitorData };
+      }
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn(`[YT-SESSION] Falha ao obter tokens em ${url}: ${msg}`);
+    }
   }
-  return ensureCookiesFile()
+
+  return null;
 }
 
 function shellQuote (value: string): string {
@@ -135,13 +62,17 @@ function buildFormatArgs (kind: DownloadKind): string {
   return '-f "bestvideo+bestaudio/best" --merge-output-format mp4'
 }
 
-function getStrategies (cookiesPath: string | null): YtDlpStrategy[] {
+function getStrategies (tokens: { poToken: string; visitorData: string } | null): YtDlpStrategy[] {
   const strategies: YtDlpStrategy[] = []
 
-  if (cookiesPath) {
+  if (tokens?.poToken && tokens?.visitorData) {
     strategies.push({
-      name: 'cookies+deno',
-      extraArgs: `--cookies ${shellQuote(cookiesPath)}`
+      name: 'po_token+web',
+      extraArgs: `--extractor-args "youtube:player_client=web;po_token=web+${tokens.poToken};visitor_data=${tokens.visitorData}"`
+    })
+    strategies.push({
+      name: 'po_token+web_embedded',
+      extraArgs: `--extractor-args "youtube:player_client=web_embedded;po_token=web+${tokens.poToken};visitor_data=${tokens.visitorData}"`
     })
   }
 
@@ -175,15 +106,6 @@ function getStrategies (cookiesPath: string | null): YtDlpStrategy[] {
   return strategies
 }
 
-function isInvalidCookiesError (message: string): boolean {
-  const lower = message.toLowerCase()
-  return (
-    lower.includes('cookies are no longer valid') ||
-    lower.includes('sign in to confirm') ||
-    lower.includes('use --cookies-from-browser')
-  )
-}
-
 export class MediaService {
   async searchYouTube (query: string): Promise<string | null> {
     const results = await ytSearch(query)
@@ -195,27 +117,17 @@ export class MediaService {
     outputPath: string,
     kind: DownloadKind
   ): Promise<void> {
-    const cookiesPath = getCookiesPath()
-    const strategies = getStrategies(cookiesPath)
+    const tokens = await fetchYtSessionTokens()
+    const strategies = getStrategies(tokens)
     const formatArgs = buildFormatArgs(kind)
     let lastError: Error | null = null
-    let skipCookies = false
 
     for (const strategy of strategies) {
-      if (skipCookies && strategy.extraArgs.includes('--cookies')) {
-        continue
-      }
-
-      const proxyArg = process.env.HTTP_PROXY || process.env.HTTPS_PROXY
-        ? `--proxy ${shellQuote(process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '')}`
-        : ''
-
       const targetPath = kind === 'audio' ? outputPath + '.raw' : outputPath
 
       const command = [
         'yt-dlp',
         '--js-runtimes deno',
-        proxyArg,
         strategy.extraArgs,
         formatArgs,
         '--no-playlist',
@@ -255,17 +167,6 @@ export class MediaService {
           error instanceof Error ? error.message : String(error)
         console.error(`[YT-DLP] Falha (${strategy.name}):`, message)
         lastError = error instanceof Error ? error : new Error(message)
-
-        if (
-          cookiesPath &&
-          strategy.extraArgs.includes('--cookies') &&
-          isInvalidCookiesError(message)
-        ) {
-          skipCookies = true
-          console.warn(
-            '[YT-DLP] cookies.txt inválido ou expirado. Atualize o arquivo e tente de novo. Tentando sem cookies...'
-          )
-        }
       }
     }
 
@@ -275,7 +176,7 @@ export class MediaService {
   async downloadMusic (url: string, outputPath: string): Promise<void> {
     return enqueueYouTubeDownload(async () => {
       try {
-        console.log('[MEDIA] Baixando áudio (Cobalt/Piped/ytdl-core)...');
+        console.log('[MEDIA] Baixando áudio (Cobalt/Piped/Invidious)...');
         await downloadYouTubeAudioProxy(url, outputPath);
         return;
       } catch (proxyError: unknown) {

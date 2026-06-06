@@ -10,6 +10,8 @@ services:
     depends_on:
       - cobalt
     restart: unless-stopped
+    volumes:
+      - ./yt-dlp-cache:/root/.cache/yt-dlp
     networks:
       - robozap-net
 
@@ -40,9 +42,6 @@ services:
     image: ghcr.io/imputnet/yt-session-generator:webserver
     init: true
     restart: unless-stopped
-    environment:
-      - HTTP_PROXY=${HTTP_PROXY:-}
-      - HTTPS_PROXY=${HTTPS_PROXY:-}
     networks:
       - robozap-net
 
