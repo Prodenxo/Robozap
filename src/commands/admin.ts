@@ -192,22 +192,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         }
       });
 
-      // Carrega mapa LID completo do disco para máxima cobertura
-      const fs = require('fs');
-      const pathMod = require('path');
-      let fullLidMap: Record<string, string> = {};
-      try {
-        const mapPath = pathMod.join(process.cwd(), 'lid_map.json');
-        if (fs.existsSync(mapPath)) {
-          fullLidMap = JSON.parse(fs.readFileSync(mapPath, 'utf-8'));
-        }
-      } catch (e) {}
-
-      // Criar mapa reverso: realJid -> lid  
-      const reverseLidMap: Record<string, string> = {};
-      for (const [lid, real] of Object.entries(fullLidMap)) {
-        reverseLidMap[real as string] = lid;
-      }
+      const fullLidMap = LidMapService.getFullMap();
 
       // Função para obter JID canônico (sempre prefere o JID real)
       const getCanonical = (jid: string): string => {
@@ -225,9 +210,24 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         consolidatedMap.set(canonical, (consolidatedMap.get(canonical) || 0) + count);
       }
 
-      // Converte para array, ordena por contagem e pega os 10 primeiros
+      // Buscar participantes atuais do grupo para garantir que só mostramos quem está no grupo
+      const allParticipants = await (prisma as any).groupParticipant.findMany({
+        where: { groupId: group.id },
+        select: { userJid: true }
+      });
+
+      const activeMemberJids = new Set<string>();
+      for (const p of allParticipants) {
+        activeMemberJids.add(getCanonical(p.userJid));
+      }
+
+      const botJid = await whatsapp.getBotJid();
+      const canonicalBotJid = getCanonical(botJid);
+
+      // Converte para array, filtra por membros atuais e remove o bot, ordena por contagem e pega os 10 primeiros
       const sortedParticipants = Array.from(consolidatedMap.entries())
         .map(([userJid, count]) => ({ userJid, count }))
+        .filter(p => activeMemberJids.has(p.userJid) && p.userJid !== canonicalBotJid)
         .sort((a, b) => b.count - a.count)
         .slice(0, 10);
 
@@ -280,29 +280,35 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         }
       });
 
+      const fullLidMap = LidMapService.getFullMap();
+
+      // Função para obter JID canônico (sempre prefere o JID real)
+      const getCanonical = (jid: string): string => {
+        if (jid.endsWith('@lid')) {
+          return fullLidMap[jid] || jid;
+        }
+        return jid;
+      };
+
       // Consolidar contagens por JID canônico
       const countMap = new Map<string, number>();
       for (const log of activeLogs) {
-        let canonicalJid = log.userJid;
-        if (log.userJid.endsWith('@lid')) {
-          const real = LidMapService.get(log.userJid);
-          if (real) {
-            canonicalJid = real;
-          }
-        }
+        const canonicalJid = getCanonical(log.userJid);
         const count = log._count.messageId;
         countMap.set(canonicalJid, (countMap.get(canonicalJid) || 0) + count);
       }
 
+      const botJid = await whatsapp.getBotJid();
+      const canonicalBotJid = getCanonical(botJid);
+
       // Filtrar membros com menos de 50 mensagens
       const inactiveUsers: { userJid: string, count: number }[] = [];
       for (const p of allParticipants) {
-        let canonicalJid = p.userJid;
-        if (p.userJid.endsWith('@lid')) {
-          const real = LidMapService.get(p.userJid);
-          if (real) {
-            canonicalJid = real;
-          }
+        const canonicalJid = getCanonical(p.userJid);
+
+        // Excluir o bot
+        if (canonicalJid === canonicalBotJid) {
+          continue;
         }
 
         // Evitar duplicatas de participantes

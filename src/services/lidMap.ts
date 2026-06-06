@@ -4,23 +4,35 @@ import path from 'path';
 const MAP_FILE = path.join(process.cwd(), 'lid_map.json');
 
 export class LidMapService {
+  private static cache: Record<string, string> | null = null;
+
   private static loadMap(): Record<string, string> {
+    if (this.cache) {
+      return this.cache;
+    }
     try {
       if (fs.existsSync(MAP_FILE)) {
-        return JSON.parse(fs.readFileSync(MAP_FILE, 'utf-8'));
+        this.cache = JSON.parse(fs.readFileSync(MAP_FILE, 'utf-8'));
+        return this.cache!;
       }
     } catch (e) {
       console.error('[LID MAP] Error loading map:', e);
     }
-    return {};
+    this.cache = {};
+    return this.cache;
   }
 
   private static saveMap(map: Record<string, string>) {
     try {
+      this.cache = map;
       fs.writeFileSync(MAP_FILE, JSON.stringify(map, null, 2), 'utf-8');
     } catch (e) {
       console.error('[LID MAP] Error saving map:', e);
     }
+  }
+
+  static getFullMap(): Record<string, string> {
+    return this.loadMap();
   }
 
   static get(lid: string): string | null {
