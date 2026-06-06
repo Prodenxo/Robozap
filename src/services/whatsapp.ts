@@ -302,14 +302,13 @@ export class WhatsAppService {
       const mime = type === 'audio' ? 'audio/mpeg' : (type === 'image' ? 'image/jpeg' : 'video/mp4');
       const ext = type === 'audio' ? 'mp3' : (type === 'image' ? 'jpg' : 'mp4');
       const finalFileName = fileName.includes('.') ? fileName : `${fileName}.${ext}`;
-      const mediaPayload = `data:${mime};base64,${base64}`;
 
       const payload: any = {
         number: remoteJid,
         mediatype: type,
         mimetype: mime,
         caption: caption || '',
-        media: mediaPayload,
+        media: base64,
         fileName: finalFileName
       };
 
