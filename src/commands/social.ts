@@ -25,18 +25,31 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         const group = await (prisma as any).group.findUnique({ where: { jid: msg.remoteJid } });
         if (!group) return true;
 
+        // Determinar o próximo código numérico sequencial único para o grupo
+        const roles = await (prisma as any).roleEvent.findMany({
+          where: { groupId: group.id }
+        });
+        let maxCodeNum = 0;
+        for (const r of roles) {
+          const num = parseInt(r.code, 10);
+          if (!isNaN(num) && num > maxCodeNum) {
+            maxCodeNum = num;
+          }
+        }
+        const eventCode = (maxCodeNum + 1).toString();
+
         const newRole = await (prisma as any).roleEvent.create({
           data: {
             title: title || "Novo Rolê",
             description: description || "Sem descrição",
-            code: `ROLE_${Date.now()}`,
+            code: eventCode,
             createdBy: userJid,
             group: { connect: { id: group.id } }
           }
         });
         await whatsapp.sendMessage(
           msg.remoteJid,
-          `✅ *ROLÊ MARCADO!* 🍻\n\n📌 *${newRole.title}*\n📝 ${newRole.description}\n\nPara participar, responda com:\n👉 *.vou* - Confirmar presença\n👉 *.nvou* - Recusar / Não vou\n\nPara ver a lista atualizada a qualquer momento, digite *.roles* ou *.resenha*.`
+          `✅ *ROLÊ MARCADO!* 🍻\n\n📌 *[Código: ${newRole.code}] - ${newRole.title}*\n📝 ${newRole.description || 'Sem descrição'}\n\nPara participar, responda com:\n👉 *.vou ${newRole.code}* - Confirmar presença\n👉 *.nvou ${newRole.code}* - Recusar / Não vou\n\nPara ver a lista atualizada, digite *.roles ${newRole.code}*.`
         );
       } catch (error) {
         console.error('Error creating role:', error);
@@ -51,22 +64,34 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         const group = await (prisma as any).group.findUnique({ where: { jid: msg.remoteJid } });
         if (!group) return true;
 
-        const latestRole = await (prisma as any).roleEvent.findFirst({
-          where: { groupId: group.id, active: true },
-          orderBy: { createdAt: 'desc' }
-        });
+        const targetCode = args[0]?.trim();
+        let targetRole;
 
-        if (!latestRole) {
-          await whatsapp.sendMessage(msg.remoteJid, "❌ Não tem nenhum rolê ativo no momento para encerrar.");
-          return true;
+        if (targetCode) {
+          targetRole = await (prisma as any).roleEvent.findFirst({
+            where: { groupId: group.id, code: targetCode, active: true }
+          });
+          if (!targetRole) {
+            await whatsapp.sendMessage(msg.remoteJid, `❌ Não encontrei nenhum rolê ativo com o código *"${targetCode}"* neste grupo.`);
+            return true;
+          }
+        } else {
+          targetRole = await (prisma as any).roleEvent.findFirst({
+            where: { groupId: group.id, active: true },
+            orderBy: { createdAt: 'desc' }
+          });
+          if (!targetRole) {
+            await whatsapp.sendMessage(msg.remoteJid, "❌ Não tem nenhum rolê ativo no momento para encerrar.");
+            return true;
+          }
         }
 
         await (prisma as any).roleEvent.update({
-          where: { id: latestRole.id },
+          where: { id: targetRole.id },
           data: { active: false }
         });
 
-        await whatsapp.sendMessage(msg.remoteJid, `🏁 *ROLÊ FINALIZADO!* 🔒\nO rolê "${latestRole.title}" foi encerrado e não aceita mais participações.`);
+        await whatsapp.sendMessage(msg.remoteJid, `🏁 *ROLÊ FINALIZADO!* 🔒\nO rolê *"[Código: ${targetRole.code}] - ${targetRole.title}"* foi encerrado e não aceita mais participações.`);
       } catch (error) {
         console.error('Error ending role:', error);
       }
@@ -101,14 +126,26 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         const group = await (prisma as any).group.findUnique({ where: { jid: msg.remoteJid } });
         if (!group) return true;
 
-        const latestRole = await (prisma as any).roleEvent.findFirst({
-          where: { groupId: group.id, active: true },
-          orderBy: { createdAt: 'desc' }
-        });
+        const targetCode = args[0]?.trim();
+        let targetRole;
 
-        if (!latestRole) {
-          await whatsapp.sendMessage(msg.remoteJid, "❌ Não tem nenhum rolê marcado por aqui ainda. Crie um com `.role.criar`!");
-          return true;
+        if (targetCode) {
+          targetRole = await (prisma as any).roleEvent.findFirst({
+            where: { groupId: group.id, code: targetCode, active: true }
+          });
+          if (!targetRole) {
+            await whatsapp.sendMessage(msg.remoteJid, `❌ Não encontrei nenhum rolê ativo com o código *"${targetCode}"* neste grupo.`);
+            return true;
+          }
+        } else {
+          targetRole = await (prisma as any).roleEvent.findFirst({
+            where: { groupId: group.id, active: true },
+            orderBy: { createdAt: 'desc' }
+          });
+          if (!targetRole) {
+            await whatsapp.sendMessage(msg.remoteJid, "❌ Não tem nenhum rolê marcado por aqui ainda. Crie um com `.role.criar`!");
+            return true;
+          }
         }
 
         const isYes = [
@@ -141,14 +178,14 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         });
 
         await (prisma as any).roleParticipation.upsert({
-          where: { roleId_participantId: { roleId: latestRole.id, participantId: participant.id } },
+          where: { roleId_participantId: { roleId: targetRole.id, participantId: participant.id } },
           update: { status: status },
-          create: { roleId: latestRole.id, participantId: participant.id, status: status }
+          create: { roleId: targetRole.id, participantId: participant.id, status: status }
         });
 
         // Busca a lista atualizada de participantes
         const roleWithParticipations = await (prisma as any).roleEvent.findUnique({
-          where: { id: latestRole.id },
+          where: { id: targetRole.id },
           include: { 
             participations: { 
               include: { participant: { include: { user: true } } } 
@@ -159,16 +196,20 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         const vao = roleWithParticipations.participations.filter((p: any) => p.status === 'vou');
         const nvao = roleWithParticipations.participations.filter((p: any) => p.status === 'nvou');
 
-        const vaoNames = vao.map((p: any) => p.participant.user?.pushName || 'Anon').join(', ');
-        const nvaoNames = nvao.map((p: any) => p.participant.user?.pushName || 'Anon').join(', ');
+        const vaoNames = await Promise.all(
+          vao.map(async (p: any) => await whatsapp.resolveName(p.participant.userJid, msg.remoteJid))
+        );
+        const nvaoNames = await Promise.all(
+          nvao.map(async (p: any) => await whatsapp.resolveName(p.participant.userJid, msg.remoteJid))
+        );
 
         const icon = status === 'vou' ? '✅' : '❌';
         const actionText = status === 'vou' ? 'confirmou presença' : 'recusou';
         
-        let replyText = `${icon} *${msg.pushName}* ${actionText} no rolê *"${latestRole.title}"*!\n\n`;
-        replyText += `✅ *Vão (${vao.length}):* ${vaoNames || 'Ninguém'}\n`;
-        replyText += `❌ *Não vão (${nvao.length}):* ${nvaoNames || 'Todo mundo'}\n\n`;
-        replyText += `Para atualizar sua presença, digite *.vou* ou *.nvou*!`;
+        let replyText = `${icon} *${msg.pushName}* ${actionText} no rolê *"${targetRole.title}"*!\n\n`;
+        replyText += `✅ *Vão (${vao.length}):* ${vaoNames.join(', ') || 'Ninguém'}\n`;
+        replyText += `❌ *Não vão (${nvao.length}):* ${nvaoNames.join(', ') || 'Todo mundo'}\n\n`;
+        replyText += `Para atualizar sua presença, digite *.vou ${targetRole.code}* ou *.nvou ${targetRole.code}*!`;
 
         await whatsapp.sendMessage(msg.remoteJid, replyText);
       } catch (error) {
@@ -182,31 +223,65 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         const group = await (prisma as any).group.findUnique({ where: { jid: msg.remoteJid } });
         if (!group) return true;
 
-        const currentRoles = await (prisma as any).roleEvent.findMany({
-          where: { groupId: group.id, active: true },
-          include: { 
-            participations: { 
-              include: { participant: { include: { user: true } } } 
-            } 
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 3
-        });
+        const targetCode = args[0]?.trim();
+        let currentRoles = [];
+
+        if (targetCode) {
+          const role = await (prisma as any).roleEvent.findFirst({
+            where: { groupId: group.id, code: targetCode, active: true },
+            include: { 
+              participations: { 
+                include: { participant: { include: { user: true } } } 
+              } 
+            }
+          });
+          if (role) {
+            currentRoles = [role];
+          } else {
+            await whatsapp.sendMessage(msg.remoteJid, `❌ Não encontrei nenhum rolê ativo com o código *"${targetCode}"* neste grupo.`);
+            return true;
+          }
+        } else {
+          currentRoles = await (prisma as any).roleEvent.findMany({
+            where: { groupId: group.id, active: true },
+            include: { 
+              participations: { 
+                include: { participant: { include: { user: true } } } 
+              } 
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 3
+          });
+        }
 
         if (currentRoles.length === 0) {
           await whatsapp.sendMessage(msg.remoteJid, "📭 *NENHUM ROLÊ MARCADO.* Que tristeza, bando de desocupados!");
           return true;
         }
 
-        let listText = `🍻 *PRÓXIMOS ROLÊS DA TROPA* 🍻\n\n`;
+        let listText = targetCode 
+          ? `🍻 *DETALHES DO ROLÊ [Código: ${targetCode}]* 🍻\n\n`
+          : `🍻 *PRÓXIMOS ROLÊS DA TROPA* 🍻\n\n`;
+
         for (const role of currentRoles) {
           const vao = role.participations.filter((p: any) => p.status === 'vou');
           const nvao = role.participations.filter((p: any) => p.status === 'nvou');
 
-          listText += `📌 *${role.title}*\n`;
+          const vaoNames = await Promise.all(
+            vao.map(async (p: any) => await whatsapp.resolveName(p.participant.userJid, msg.remoteJid))
+          );
+          const nvaoNames = await Promise.all(
+            nvao.map(async (p: any) => await whatsapp.resolveName(p.participant.userJid, msg.remoteJid))
+          );
+
+          listText += `📌 *[Código: ${role.code}] - ${role.title}*\n`;
           if (role.description) listText += `📝 ${role.description}\n`;
-          listText += `✅ *Vão (${vao.length}):* ${vao.map((p: any) => p.participant.user?.pushName || 'Anon').join(', ') || 'Ninguém'}\n`;
-          listText += `❌ *Não vão (${nvao.length}):* ${nvao.map((p: any) => p.participant.user?.pushName || 'Anon').join(', ') || 'Todo mundo'}\n\n`;
+          listText += `✅ *Vão (${vao.length}):* ${vaoNames.join(', ') || 'Ninguém'}\n`;
+          listText += `❌ *Não vão (${nvao.length}):* ${nvaoNames.join(', ') || 'Todo mundo'}\n\n`;
+        }
+
+        if (!targetCode && currentRoles.length > 0) {
+          listText += `Para ver a lista detalhada de um rolê específico, use o código (ex: *.roles ${currentRoles[0].code}*).`;
         }
         
         await whatsapp.sendMessage(msg.remoteJid, listText);
