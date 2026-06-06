@@ -124,11 +124,19 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
           if (base64) {
             await whatsapp.sendSticker(msg.remoteJid, base64);
           } else {
-            throw new Error('Failed to fetch base64 from message');
+            throw new Error('Failed to fetch base64 from message (Message not found)');
           }
-        } catch (error) {
+        } catch (error: any) {
           console.error('[MEDIA] Sticker Error:', error);
-          await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figErrorGeneric);
+          const errorStr = (error?.response?.data ? JSON.stringify(error.response.data) : '') + (error?.message || '');
+          if (errorStr.includes('Message not found') || errorStr.includes('not found')) {
+            await whatsapp.sendMessage(
+              msg.remoteJid,
+              '⚠️ *Mensagem não encontrada na Evolution API.* Para fazer figurinhas citando mensagens antigas ou de visualização única, a Evolution API precisa estar configurada com a variável `STORE_MESSAGES=true`.'
+            );
+          } else {
+            await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figErrorGeneric);
+          }
         }
       } else {
         await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figErrorNoImage);
