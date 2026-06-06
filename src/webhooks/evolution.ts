@@ -56,8 +56,7 @@ async function handleMessageUpsert(message: any) {
   const textContent = 
     msgContent.conversation || 
     msgContent.extendedTextMessage?.text || 
-    msgContent.imageMessage?.caption || 
-    msgContent.videoMessage?.caption || 
+    findField(msgContent, 'caption') || 
     '';
 
   const remoteJid = message.key.remoteJid;

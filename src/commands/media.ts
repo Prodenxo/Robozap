@@ -67,17 +67,15 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
       console.log(`[MEDIA] msgContent keys: ${Object.keys(msgContent)}`);
       console.log(`[MEDIA] quotedContent keys: ${Object.keys(quotedContent)}`);
 
-      // Helper to find media in nested structures (viewOnce, ephemeral, etc)
-      const findMedia = (m: any) => {
-          if (!m) return null;
-          // Se o objeto já for a mídia, retorna ele mesmo
-          if (m.url || m.directPath || m.mediaKey) return m;
-          
-          return m.imageMessage || m.stickerMessage || m.videoMessage || 
-                 m.viewOnceMessage?.message?.imageMessage || 
-                 m.viewOnceMessageV2?.message?.imageMessage ||
-                 m.ephemeralMessage?.message?.imageMessage ||
-                 m.documentWithCaptionMessage?.message?.imageMessage;
+      // Helper recursivo para encontrar qualquer mídia estruturada do WhatsApp (incluindo visualização única)
+      const findMedia = (m: any): any => {
+          if (!m || typeof m !== 'object') return null;
+          if ((m.url || m.directPath) && m.mediaKey) return m;
+          for (const key in m) {
+              const res = findMedia(m[key]);
+              if (res) return res;
+          }
+          return null;
       };
 
       const mediaContent = findMedia(msgContent);
