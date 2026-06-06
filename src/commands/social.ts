@@ -183,7 +183,27 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
           create: { roleId: targetRole.id, participantId: participant.id, status: status }
         });
 
-        // Busca a lista atualizada de participantes
+        // Limpa participações duplicadas do mesmo usuário (LID vs JID real)
+        const allPartsForRole = await (prisma as any).roleParticipation.findMany({
+          where: { roleId: targetRole.id },
+          include: { participant: true }
+        });
+        const seenResolved = new Map<string, any>();
+        for (const part of allPartsForRole) {
+          const resolvedPartJid = LidMapService.get(part.participant.userJid) || part.participant.userJid;
+          if (seenResolved.has(resolvedPartJid)) {
+            // Duplicata encontrada — mantém o registro atual (participant.id) e deleta o outro
+            const existing = seenResolved.get(resolvedPartJid);
+            const toDelete = part.participantId === participant.id ? existing : part;
+            const toKeep = part.participantId === participant.id ? part : existing;
+            await (prisma as any).roleParticipation.delete({ where: { id: toDelete.id } });
+            seenResolved.set(resolvedPartJid, toKeep);
+          } else {
+            seenResolved.set(resolvedPartJid, part);
+          }
+        }
+
+        // Busca a lista atualizada de participantes (após limpeza)
         const roleWithParticipations = await (prisma as any).roleEvent.findUnique({
           where: { id: targetRole.id },
           include: { 
@@ -198,15 +218,17 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
 
         const vaoNames = await Promise.all(
           vao.map(async (p: any) => {
-            const name = await whatsapp.resolveName(p.participant.userJid, msg.remoteJid);
-            const number = p.participant.userJid.split('@')[0];
+            const resolvedJid = LidMapService.get(p.participant.userJid) || p.participant.userJid;
+            const name = await whatsapp.resolveName(resolvedJid, msg.remoteJid);
+            const number = resolvedJid.split('@')[0];
             return `${name} (${number})`;
           })
         );
         const nvaoNames = await Promise.all(
           nvao.map(async (p: any) => {
-            const name = await whatsapp.resolveName(p.participant.userJid, msg.remoteJid);
-            const number = p.participant.userJid.split('@')[0];
+            const resolvedJid = LidMapService.get(p.participant.userJid) || p.participant.userJid;
+            const name = await whatsapp.resolveName(resolvedJid, msg.remoteJid);
+            const number = resolvedJid.split('@')[0];
             return `${name} (${number})`;
           })
         );
@@ -277,15 +299,17 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
 
           const vaoNames = await Promise.all(
             vao.map(async (p: any) => {
-              const name = await whatsapp.resolveName(p.participant.userJid, msg.remoteJid);
-              const number = p.participant.userJid.split('@')[0];
+              const resolvedJid = LidMapService.get(p.participant.userJid) || p.participant.userJid;
+              const name = await whatsapp.resolveName(resolvedJid, msg.remoteJid);
+              const number = resolvedJid.split('@')[0];
               return `${name} (${number})`;
             })
           );
           const nvaoNames = await Promise.all(
             nvao.map(async (p: any) => {
-              const name = await whatsapp.resolveName(p.participant.userJid, msg.remoteJid);
-              const number = p.participant.userJid.split('@')[0];
+              const resolvedJid = LidMapService.get(p.participant.userJid) || p.participant.userJid;
+              const name = await whatsapp.resolveName(resolvedJid, msg.remoteJid);
+              const number = resolvedJid.split('@')[0];
               return `${name} (${number})`;
             })
           );
