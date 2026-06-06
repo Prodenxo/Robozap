@@ -78,7 +78,8 @@ export const processMessage = async (msg: MessageData) => {
       let currentSettings = group.settings ? (typeof group.settings === 'string' ? JSON.parse(group.settings) : group.settings) : {};
       if (currentSettings && currentSettings.adminMode === true) {
         const isEssential = ['menu', 'vencimento', 'ajuda', 'filhote.ajuda'].includes(command);
-        if (!isEssential) {
+        const allowedForAll = ['role.vou','vou','role.nvou','nvou','vounao','role.sair','role.encerrar','role.cancelar','role.criar','role.elencerrar','roles','role','role.participar'];
+        if (!isEssential && !allowedForAll.includes(command)) {
           // Sincroniza participantes para atualizar cargos e LIDs antes de checar as permissões
           await whatsapp.syncGroupParticipants(msg.remoteJid);
           const hasPermission = await PermissionGuard.canExecute(msg.participant, msg.remoteJid, PermissionGuard.ROLES.ADM);
