@@ -23,6 +23,34 @@ function wrapText(text: string, maxCharsPerLine: number = 15): string {
   return lines.join('\n');
 }
 
+const { decryptMedia } = require('@open-wa/wa-decrypt');
+
+async function decryptMediaLocally(targetMedia: any): Promise<string | null> {
+  try {
+    if (!targetMedia.mediaKey || (!targetMedia.url && !targetMedia.directPath)) {
+      return null;
+    }
+
+    const decryptPayload = {
+      clientUrl: targetMedia.url || targetMedia.directPath,
+      mediaKey: targetMedia.mediaKey,
+      mimetype: targetMedia.mimetype,
+      size: targetMedia.fileLength || targetMedia.size,
+      filehash: targetMedia.fileSha256 || targetMedia.filehash || targetMedia.fileEncSha256
+    };
+
+    console.log(`[DECRYPT] Tentando descriptografar mídia localmente. Mimetype: ${decryptPayload.mimetype}`);
+    const buffer = await decryptMedia(decryptPayload);
+    if (buffer && buffer.length > 0) {
+      console.log(`[DECRYPT] Sucesso na descriptografia local! Tamanho: ${buffer.length}`);
+      return buffer.toString('base64');
+    }
+  } catch (err) {
+    console.warn('[DECRYPT] Falha na descriptografia local, caindo para fallback:', err instanceof Error ? err.message : String(err));
+  }
+  return null;
+}
+
 const whatsapp = new WhatsAppService();
 const media = new MediaService();
 
@@ -86,19 +114,21 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
       if (targetMedia) {
         await whatsapp.sendMessage(msg.remoteJid, botTexts.media.figStart);
         try {
-          // Identify which ID to use
-          const isQuoted = !!quotedMediaContent;
-          const targetMessageId = isQuoted ? msg.quotedId : msg.id;
-          
-          if (!targetMessageId) throw new Error('No message ID found for media');
+          // Tenta descriptografar localmente primeiro (funciona para view-once!)
+          let base64 = await decryptMediaLocally(targetMedia);
 
-          const key = {
-              id: targetMessageId
-          };
+          if (!base64) {
+            const isQuoted = !!quotedMediaContent;
+            const targetMessageId = isQuoted ? msg.quotedId : msg.id;
+            if (!targetMessageId) throw new Error('No message ID found for media');
 
-          console.log(`[MEDIA] .fig command. Target ID: ${targetMessageId}, IsQuoted: ${isQuoted}`);
-          
-          const base64 = await whatsapp.getBase64FromMessage(key);
+            const key = {
+                id: targetMessageId
+            };
+
+            console.log(`[MEDIA] Descriptografia local falhou, buscando da API. Target ID: ${targetMessageId}`);
+            base64 = await whatsapp.getBase64FromMessage(key);
+          }
 
           if (base64) {
             await whatsapp.sendSticker(msg.remoteJid, base64);
