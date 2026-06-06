@@ -150,6 +150,8 @@ export const COMMAND_MAP: Record<string, Function> = {
   'zerar': handleAdminCommands,
   'zerar.logs': handleAdminCommands,
   'limpar.logs': handleAdminCommands,
+  'alertaprog': handleAdminCommands,
+  'alerta.programado': handleAdminCommands,
 
   // TESTES
   'debug': handleGeneralCommands,

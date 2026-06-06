@@ -3,6 +3,7 @@ import { botTexts } from '../config/texts';
 import { prisma } from '../services/database';
 import { PermissionGuard } from '../core/Guards';
 import { LidMapService } from '../services/lidMap';
+import { decryptMediaLocally } from './media';
 
 const whatsapp = new WhatsAppService();
 
@@ -406,6 +407,164 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       return true;
     }
 
+    case 'alertaprog':
+    case 'alerta.programado': {
+      const group = await (prisma as any).group.findUnique({
+        where: { jid: msg.remoteJid }
+      });
+      if (!group) {
+        await whatsapp.sendMessage(msg.remoteJid, "❌ Grupo não inicializado no banco.");
+        return true;
+      }
+
+      let currentSettings = group.settings ? (typeof group.settings === 'string' ? JSON.parse(group.settings) : group.settings) : {};
+      if (typeof currentSettings !== 'object') currentSettings = {};
+
+      const option = args[0]?.toLowerCase();
+
+      // Se não passou argumentos, exibe o status atual
+      if (!option) {
+        const alert = (currentSettings as any).scheduledAlert;
+        if (!alert || !alert.active) {
+          await whatsapp.sendMessage(msg.remoteJid, "ℹ️ *Alerta programado está desativado.* \n\nUse: `.alertaprog <tempo> <mensagem>` para configurar um novo alerta.\nExemplos de tempo: `30m` (30 minutos), `2h` (2 horas), `10s` (10 segundos).");
+          return true;
+        }
+
+        let intervalMs = Number(alert.intervalMs);
+        if (isNaN(intervalMs) || intervalMs <= 0) {
+          const intervalHours = Number(alert.intervalHours);
+          if (!isNaN(intervalHours) && intervalHours > 0) {
+            intervalMs = intervalHours * 60 * 60 * 1000;
+          }
+        }
+
+        const next = new Date(new Date(alert.lastSent || 0).getTime() + intervalMs);
+        const mediaStatus = alert.mediaBase64 ? "Sim 📸" : "Não";
+        const intervalLabel = alert.intervalText || `${alert.intervalHours} horas`;
+
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          `⚙️ *STATUS DO ALERTA PROGRAMADO* ⚙️\n\n` +
+          `• *Status*: Ativo ✅\n` +
+          `• *Intervalo*: A cada ${intervalLabel}\n` +
+          `• *Mídia/Foto*: ${mediaStatus}\n` +
+          `• *Próximo envio*: ${next.toLocaleString('pt-BR')}\n` +
+          `• *Mensagem*:\n"${alert.text}"\n\n` +
+          `Para desativar, use: \`.alertaprog off\``
+        );
+        return true;
+      }
+
+      // Desativar o alerta
+      if (['off', 'desativar', 'parar', 'cancelar'].includes(option)) {
+        if (!(currentSettings as any).scheduledAlert) {
+          (currentSettings as any).scheduledAlert = {};
+        }
+        (currentSettings as any).scheduledAlert.active = false;
+
+        await (prisma as any).group.update({
+          where: { id: group.id },
+          data: { settings: currentSettings }
+        });
+
+        await whatsapp.sendMessage(msg.remoteJid, "🔒 *Alerta programado desativado com sucesso!*");
+        return true;
+      }
+
+      // Configurar novo alerta com tempo flexível (ex: 30m, 2h, 10s)
+      const timeMatch = option.match(/^(\d+)(h|m|s)?$/i);
+      if (!timeMatch) {
+        await whatsapp.sendMessage(msg.remoteJid, "❌ Formato de tempo inválido. Use números seguidos de h (horas), m (minutos) ou s (segundos).\n\nExemplos:\n• `.alertaprog 30m Bora!` (30 minutos)\n• `.alertaprog 2h Bora!` (2 horas)\n• `.alertaprog 15s Bora!` (15 segundos)");
+        return true;
+      }
+
+      const timeValue = Number(timeMatch[1]);
+      const timeUnit = (timeMatch[2] || 'h').toLowerCase();
+
+      let intervalMs = 0;
+      let intervalText = '';
+      if (timeUnit === 'h') {
+        intervalMs = timeValue * 60 * 60 * 1000;
+        intervalText = `${timeValue} hora(s)`;
+      } else if (timeUnit === 'm') {
+        intervalMs = timeValue * 60 * 1000;
+        intervalText = `${timeValue} minuto(s)`;
+      } else if (timeUnit === 's') {
+        intervalMs = timeValue * 1000;
+        intervalText = `${timeValue} segundo(s)`;
+      }
+
+      const textMessage = args.slice(1).join(' ').trim();
+      if (!textMessage) {
+        await whatsapp.sendMessage(msg.remoteJid, `❌ Por favor, digite a mensagem do alerta.\nExemplo: \`.alertaprog ${option} Bora reagir!\``);
+        return true;
+      }
+
+      // Verificar se há foto ou vídeo anexado
+      const msgContent = msg.raw?.message || {};
+      const quotedContent = msg.quoted || {};
+
+      const findMedia = (m: any): any => {
+          if (!m || typeof m !== 'object') return null;
+          if ((m.url || m.directPath) && m.mediaKey) return m;
+          for (const key in m) {
+              const res = findMedia(m[key]);
+              if (res) return res;
+          }
+          return null;
+      };
+
+      const mediaContent = findMedia(msgContent);
+      const quotedMediaContent = findMedia(quotedContent);
+      const targetMedia = quotedMediaContent || mediaContent;
+
+      let mediaBase64: string | null = null;
+      let mediaType: string | null = null;
+
+      if (targetMedia) {
+        const mime = targetMedia.mimetype || '';
+        if (mime.startsWith('image/')) mediaType = 'image';
+        else if (mime.startsWith('video/')) mediaType = 'video';
+        else if (mime.startsWith('audio/')) mediaType = 'audio';
+
+        if (mediaType) {
+          await whatsapp.sendMessage(msg.remoteJid, "📸 *Fazendo download e salvando a mídia para o agendamento...*");
+          mediaBase64 = await decryptMediaLocally(targetMedia);
+          if (!mediaBase64) {
+            const isQuoted = !!quotedMediaContent;
+            const targetMessageId = isQuoted ? msg.quotedId : msg.id;
+            if (targetMessageId) {
+              mediaBase64 = await whatsapp.getBase64FromMessage({ id: targetMessageId });
+            }
+          }
+        }
+      }
+
+      (currentSettings as any).scheduledAlert = {
+        intervalMs,
+        intervalText,
+        text: textMessage,
+        mediaBase64,
+        mediaType,
+        lastSent: new Date().toISOString(), // Começa a contar a partir de agora
+        active: true
+      };
+
+      await (prisma as any).group.update({
+        where: { id: group.id },
+        data: { settings: currentSettings }
+      });
+
+      const mediaDetail = mediaBase64 ? " com imagem/vídeo" : "";
+      await whatsapp.sendMessage(
+        msg.remoteJid,
+        `✅ *Alerta programado ativo!*\n\n` +
+        `• O robô enviará a mensagem${mediaDetail} a cada *${intervalText}* marcando todos silenciosamente.\n` +
+        `• Primeiro envio agendado para daqui a *${intervalText}*.`
+      );
+      return true;
+    }
+
     case 'todos':
     case 'marcar': {
       await whatsapp.syncGroupParticipants(msg.remoteJid);
@@ -420,6 +579,56 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       
       const text = `📢 *FILHOTE CHAMANDO A TROPA!* 📢\n\n${args.join(' ') || 'Bora reagir, bando de desocupado!'}`;
       
+      const msgContent = msg.raw?.message || {};
+      const quotedContent = msg.quoted || {};
+
+      const findMedia = (m: any): any => {
+          if (!m || typeof m !== 'object') return null;
+          if ((m.url || m.directPath) && m.mediaKey) return m;
+          for (const key in m) {
+              const res = findMedia(m[key]);
+              if (res) return res;
+          }
+          return null;
+      };
+
+      const mediaContent = findMedia(msgContent);
+      const quotedMediaContent = findMedia(quotedContent);
+      const targetMedia = quotedMediaContent || mediaContent;
+
+      if (targetMedia) {
+        const mime = targetMedia.mimetype || '';
+        const isImage = mime.startsWith('image/');
+        const isVideo = mime.startsWith('video/');
+        const isAudio = mime.startsWith('audio/');
+        
+        let type: 'image' | 'video' | 'audio' = 'image';
+        if (isVideo) type = 'video';
+        if (isAudio) type = 'audio';
+
+        // Tentar descriptografar localmente
+        let base64 = await decryptMediaLocally(targetMedia);
+        if (!base64) {
+          const isQuoted = !!quotedMediaContent;
+          const targetMessageId = isQuoted ? msg.quotedId : msg.id;
+          if (targetMessageId) {
+            base64 = await whatsapp.getBase64FromMessage({ id: targetMessageId });
+          }
+        }
+
+        if (base64) {
+          await whatsapp.sendMedia(
+            msg.remoteJid,
+            base64,
+            type,
+            undefined, // quotedMsgId
+            text,      // caption
+            list       // mentions
+          );
+          return true;
+        }
+      }
+
       await whatsapp.sendMessage(msg.remoteJid, text, list);
       return true;
     }

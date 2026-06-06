@@ -269,18 +269,38 @@ export class WhatsAppService {
     }
   }
 
-  async sendMedia(remoteJid: string, mediaPath: string, type: 'audio' | 'video' | 'image', quotedMsgId?: string) {
-    const mediaBuffer = fs.readFileSync(mediaPath);
-    const base64 = mediaBuffer.toString('base64');
+  async sendMedia(
+    remoteJid: string,
+    mediaInput: string | Buffer,
+    type: 'audio' | 'video' | 'image',
+    quotedMsgId?: string,
+    caption: string = '',
+    mentions: string[] = []
+  ) {
+    let base64 = '';
+    let fileName = 'media';
 
     try {
+      if (Buffer.isBuffer(mediaInput)) {
+        base64 = mediaInput.toString('base64');
+      } else if (typeof mediaInput === 'string') {
+        if (mediaInput.includes(';base64,')) {
+          base64 = mediaInput.split(';base64,')[1];
+        } else if (fs.existsSync(mediaInput)) {
+          base64 = fs.readFileSync(mediaInput).toString('base64');
+          fileName = path.basename(mediaInput);
+        } else {
+          base64 = mediaInput;
+        }
+      }
+
       const payload: any = {
         number: remoteJid,
         mediatype: type,
         mimetype: type === 'audio' ? 'audio/mpeg' : (type === 'image' ? 'image/jpeg' : 'video/mp4'),
-        caption: '',
+        caption: caption || '',
         media: base64,
-        fileName: path.basename(mediaPath)
+        fileName: fileName
       };
 
       if (quotedMsgId) {
@@ -291,11 +311,60 @@ export class WhatsAppService {
         };
       }
 
+      if (mentions.length > 0) {
+        const finalMentions: string[] = [];
+        let updatedCaption = caption;
+
+        for (const m of mentions) {
+          if (typeof m !== 'string') continue;
+          let jid = m;
+          if (!jid.includes('@')) {
+            jid = `${jid}@s.whatsapp.net`;
+          }
+
+          if (jid.endsWith('@lid')) {
+            finalMentions.push(jid);
+            const realJid = LidMapService.get(jid);
+            if (realJid) {
+              const realNum = realJid.split('@')[0];
+              const lidNum = jid.split('@')[0];
+              updatedCaption = updatedCaption.replace(new RegExp(`@${realNum}\\b`, 'g'), `@${lidNum}`);
+            }
+          } else if (jid.endsWith('@s.whatsapp.net')) {
+            const lid = LidMapService.getLid(jid);
+            if (lid) {
+              finalMentions.push(lid);
+              const realNum = jid.split('@')[0];
+              const lidNum = lid.split('@')[0];
+              updatedCaption = updatedCaption.replace(new RegExp(`@${realNum}\\b`, 'g'), `@${lidNum}`);
+            } else {
+              finalMentions.push(jid);
+            }
+          } else {
+            finalMentions.push(jid);
+          }
+        }
+
+        const uniqueMentions = Array.from(new Set(finalMentions.filter(Boolean)));
+        if (uniqueMentions.length > 0) {
+          payload.mentions = uniqueMentions;
+          payload.mentioned = uniqueMentions;
+          payload.caption = updatedCaption;
+          payload.options = {
+            linkPreview: false,
+            mentions: {
+              everyOne: false,
+              mentioned: uniqueMentions
+            }
+          };
+        }
+      }
+
       const response = await axios.post(`${this.baseUrl}/message/sendMedia/${this.instance}`, payload, { headers: this.headers });
       return response.data;
     } catch (error: any) {
       console.error('Error sending media:', error.response?.data || error.message);
-      throw new Error('Falha ao enviar áudio no WhatsApp');
+      throw new Error('Falha ao enviar mídia no WhatsApp');
     }
   }
 

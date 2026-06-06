@@ -54,7 +54,7 @@ function toNumber(obj: any): number {
   return 0;
 }
 
-async function decryptMediaLocally(targetMedia: any): Promise<string | null> {
+export async function decryptMediaLocally(targetMedia: any): Promise<string | null> {
   try {
     if (!targetMedia.mediaKey || (!targetMedia.url && !targetMedia.directPath)) {
       return null;
