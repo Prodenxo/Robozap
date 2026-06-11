@@ -28,9 +28,14 @@ services:
       RATELIMIT_MAX: "30"
       # Cookies YouTube (copie cookies.json para a pasta do projeto)
       COOKIE_PATH: /cookies.json
-      # Renovação automática usando o yt-session
-      YOUTUBE_SESSION_SERVER: http://yt-session:8080/
-      YOUTUBE_SESSION_INNERTUBE_CLIENT: WEB_EMBEDDED
+      # Renovação automática usando o yt-session (opcional, configurado via .env)
+      YOUTUBE_SESSION_SERVER: "${YOUTUBE_SESSION_SERVER:-}"
+      YOUTUBE_SESSION_INNERTUBE_CLIENT: "${YOUTUBE_SESSION_INNERTUBE_CLIENT:-WEB_EMBEDDED}"
+      # Proxies para contornar bloqueio do YouTube
+      HTTP_PROXY: "${HTTP_PROXY:-}"
+      HTTPS_PROXY: "${HTTPS_PROXY:-}"
+      http_proxy: "${HTTP_PROXY:-}"
+      https_proxy: "${HTTPS_PROXY:-}"
     volumes:
       - ./cookies.json:/cookies.json:ro
     depends_on:
