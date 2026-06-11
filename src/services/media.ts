@@ -125,9 +125,13 @@ export class MediaService {
     for (const strategy of strategies) {
       const targetPath = kind === 'audio' ? outputPath + '.raw' : outputPath
 
+      const proxyUrl = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '';
+      const proxyArg = proxyUrl ? `--proxy ${shellQuote(proxyUrl)}` : '';
+
       const command = [
         'yt-dlp',
         '--js-runtimes deno',
+        proxyArg,
         strategy.extraArgs,
         formatArgs,
         '--no-playlist',
