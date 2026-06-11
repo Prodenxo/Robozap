@@ -112,6 +112,22 @@ async function handleGroupUpdate(data: any) {
     });
     if (group) {
       groupName = group.name;
+      if (!groupName) {
+        try {
+          const metadata = await whatsapp.getGroupMetadata(groupJid);
+          if (metadata) {
+            groupName = metadata.subject || (metadata as any).subjectName || (metadata as any).name || null;
+            if (groupName) {
+              await prisma.group.update({
+                where: { id: group.id },
+                data: { name: groupName }
+              });
+            }
+          }
+        } catch (apiErr) {
+          console.warn('[BOAS-VINDAS] Erro ao obter nome do grupo via API:', apiErr);
+        }
+      }
       if (group.welcomeConfig) {
         welcomeConfig = typeof group.welcomeConfig === 'string' ? JSON.parse(group.welcomeConfig) : group.welcomeConfig;
       }

@@ -792,7 +792,15 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       }
 
       // Caso contrário, o usuário forneceu uma mensagem
-      const newMessage = args.join(' ').trim();
+      // Extraímos diretamente de msg.text para preservar a formatação original (quebras de linha, espaços etc)
+      const rawText = msg.text.trim();
+      const commandIndex = rawText.toLowerCase().indexOf(command.toLowerCase());
+      let newMessage = '';
+      if (commandIndex !== -1) {
+        newMessage = rawText.slice(commandIndex + command.length).trim();
+      } else {
+        newMessage = args.join(' ').trim();
+      }
       currentWelcome.active = true;
       currentWelcome.message = newMessage;
 

@@ -445,10 +445,20 @@ export class WhatsAppService {
       
       console.log(`[SYNC DEBUG] Synced ${participants.length} participants for group ${groupJid}`);
       
+      let groupName: string | null = null;
+      try {
+        const metadata = await this.getGroupMetadata(groupJid);
+        if (metadata) {
+          groupName = metadata.subject || (metadata as any).subjectName || (metadata as any).name || null;
+        }
+      } catch (err) {
+        console.warn(`[SYNC WARNING] Failed to fetch group metadata:`, err);
+      }
+
       const group = await (prisma as any).group.upsert({
         where: { jid: groupJid },
-        update: {},
-        create: { jid: groupJid }
+        update: groupName ? { name: groupName } : {},
+        create: { jid: groupJid, name: groupName }
       });
 
       const syncedJids: string[] = [];
@@ -613,5 +623,24 @@ export class WhatsAppService {
     }
 
     return jid;
+  }
+
+  async getGroupMetadata(groupJid: string): Promise<{ subject?: string } | null> {
+    try {
+      let response;
+      try {
+        response = await axios.get(`${this.baseUrl}/group/findGroupInfos/${this.instance}?groupJid=${groupJid}`, {
+          headers: this.headers
+        });
+      } catch (e) {
+        response = await axios.get(`${this.baseUrl}/group/findGroup/${this.instance}?groupJid=${groupJid}`, {
+          headers: this.headers
+        });
+      }
+      return response.data;
+    } catch (error: any) {
+      console.error('[WHATSAPP] Error fetching group metadata:', error.response?.data || error.message);
+      return null;
+    }
   }
 }
