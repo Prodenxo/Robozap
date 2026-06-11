@@ -719,6 +719,95 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       return true;
     }
 
+    case 'boasvindas':
+    case 'welcome': {
+      const group = await (prisma as any).group.findUnique({
+        where: { jid: msg.remoteJid }
+      });
+      if (!group) {
+        await whatsapp.sendMessage(msg.remoteJid, "❌ Grupo não inicializado no banco de dados.");
+        return true;
+      }
+
+      let currentWelcome = group.welcomeConfig ? (typeof group.welcomeConfig === 'string' ? JSON.parse(group.welcomeConfig) : group.welcomeConfig) : {};
+      if (typeof currentWelcome !== 'object' || currentWelcome === null) currentWelcome = {};
+
+      const option = args[0]?.toLowerCase();
+
+      // Se não passou argumentos, exibe o status atual e ajuda
+      if (!option) {
+        const active = currentWelcome.active !== false; // ativo por padrão
+        const customMessage = currentWelcome.message;
+
+        let statusText = `👋 *CONFIGURAÇÃO DE BOAS-VINDAS*\n\n`;
+        statusText += `• *Status*: ${active ? 'Ativado ✅' : 'Desativado ❌'}\n`;
+        statusText += `• *Tipo*: ${customMessage ? 'Personalizada ✍️' : 'Mensagem Padrão ⚙️'}\n\n`;
+
+        if (customMessage) {
+          statusText += `*Mensagem Atual*:\n${customMessage}\n\n`;
+        } else {
+          statusText += `*Mensagem Padrão*:\n👋 Bem-vindo ao [Nome do Grupo]...\n\n`;
+        }
+
+        statusText += `💡 *Como configurar:* \n`;
+        statusText += `- \`.boasvindas <mensagem>\` -> Define uma mensagem personalizada.\n`;
+        statusText += `- \`.boasvindas off\` -> Desativa as boas-vindas.\n`;
+        statusText += `- \`.boasvindas on\` -> Ativa as boas-vindas.\n`;
+        statusText += `- \`.boasvindas reset\` -> Volta para a mensagem padrão.\n\n`;
+        statusText += `ℹ️ _Use \`{mencoes}\` no texto para marcar os novos membros e \`{grupo}\` para o nome do grupo._`;
+
+        await whatsapp.sendMessage(msg.remoteJid, statusText);
+        return true;
+      }
+
+      if (['off', 'desativar', 'desligar'].includes(option)) {
+        currentWelcome.active = false;
+        await (prisma as any).group.update({
+          where: { id: group.id },
+          data: { welcomeConfig: currentWelcome }
+        });
+        await whatsapp.sendMessage(msg.remoteJid, "🔒 *Boas-vindas desativadas com sucesso!* Nenhuma mensagem será enviada quando novos membros entrarem.");
+        return true;
+      }
+
+      if (['on', 'ativar', 'ligar'].includes(option)) {
+        currentWelcome.active = true;
+        await (prisma as any).group.update({
+          where: { id: group.id },
+          data: { welcomeConfig: currentWelcome }
+        });
+        await whatsapp.sendMessage(msg.remoteJid, "✅ *Boas-vindas ativadas!*");
+        return true;
+      }
+
+      if (['reset', 'padrao', 'restaurar', 'padrão'].includes(option)) {
+        currentWelcome.active = true;
+        currentWelcome.message = null;
+        await (prisma as any).group.update({
+          where: { id: group.id },
+          data: { welcomeConfig: currentWelcome }
+        });
+        await whatsapp.sendMessage(msg.remoteJid, "🔄 *Mensagem de boas-vindas restaurada para o padrão!*");
+        return true;
+      }
+
+      // Caso contrário, o usuário forneceu uma mensagem
+      const newMessage = args.join(' ').trim();
+      currentWelcome.active = true;
+      currentWelcome.message = newMessage;
+
+      await (prisma as any).group.update({
+        where: { id: group.id },
+        data: { welcomeConfig: currentWelcome }
+      });
+
+      await whatsapp.sendMessage(
+        msg.remoteJid,
+        `✅ *Mensagem de boas-vindas personalizada salva e ativada!*\n\n*Texto Salvo*:\n${newMessage}`
+      );
+      return true;
+    }
+
     default:
       return false;
   }

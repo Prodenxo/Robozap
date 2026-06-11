@@ -1,5 +1,6 @@
 import { processMessage } from '../services/commandRouter';
 import { WhatsAppService } from '../services/whatsapp';
+import { prisma } from '../services/database';
 
 const whatsapp = new WhatsAppService();
 
@@ -102,6 +103,29 @@ async function handleGroupUpdate(data: any) {
     return;
   }
 
+  // Busca configuração do grupo no BD
+  let welcomeConfig: any = null;
+  let groupName: string | null = null;
+  try {
+    const group = await prisma.group.findUnique({
+      where: { jid: groupJid }
+    });
+    if (group) {
+      groupName = group.name;
+      if (group.welcomeConfig) {
+        welcomeConfig = typeof group.welcomeConfig === 'string' ? JSON.parse(group.welcomeConfig) : group.welcomeConfig;
+      }
+    }
+  } catch (err) {
+    console.error('[BOAS-VINDAS] Erro ao buscar grupo no banco de dados:', err);
+  }
+
+  // Se explicitamente desativado, interrompe
+  if (welcomeConfig && welcomeConfig.active === false) {
+    console.log(`[BOAS-VINDAS] Boas-vindas desativadas via painel para o grupo ${groupJid}`);
+    return;
+  }
+
   const jidsToWelcome: string[] = [];
   for (let p of participants) {
     let jid = typeof p === 'object' ? (p.phoneNumber || p.id) : p;
@@ -115,7 +139,28 @@ async function handleGroupUpdate(data: any) {
 
   const mentionsText = jidsToWelcome.map(jid => `@${jid.split('@')[0]}`).join(', ');
 
-  const welcomeMsg = `👋 Bem-vindo ao Rolezeiros RJ 🍻 ${mentionsText}
+  let welcomeMsg = '';
+
+  // Se existe mensagem personalizada, usamos ela
+  if (welcomeConfig && welcomeConfig.message) {
+    let customText = welcomeConfig.message;
+
+    // Substituir tags
+    if (customText.includes('{mencoes}') || customText.includes('{mentions}')) {
+      customText = customText.replace(/{mencoes}/g, mentionsText).replace(/{mentions}/g, mentionsText);
+    } else {
+      // Se não incluiu a tag de menções, anexa ao final para notificar os membros
+      customText = `${customText}\n\n${mentionsText}`;
+    }
+
+    // Substituir tag do grupo
+    const namePlaceholder = groupName || 'Grupo';
+    customText = customText.replace(/{grupo}/g, namePlaceholder);
+
+    welcomeMsg = customText;
+  } else {
+    // Mensagem padrão
+    welcomeMsg = `👋 Bem-vindo ao ${groupName || 'Rolezeiros RJ 🍻'} ${mentionsText}
 
 Pra todo mundo se conhecer melhor e deixar o grupo mais organizado, mandem a apresentação nesse modelo:
 
@@ -128,6 +173,7 @@ Pra todo mundo se conhecer melhor e deixar o grupo mais organizado, mandem a apr
 •Sexualidade:
 
 ⚠️ Fiquem atentos às regras do grupo e ótimos rolês!`;
+  }
 
   console.log(`[BOAS-VINDAS] Enviando para ${jidsToWelcome.length} participantes no grupo ${groupJid}`);
   

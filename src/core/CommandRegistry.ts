@@ -152,6 +152,8 @@ export const COMMAND_MAP: Record<string, Function> = {
   'limpar.logs': handleAdminCommands,
   'alertaprog': handleAdminCommands,
   'alerta.programado': handleAdminCommands,
+  'boasvindas': handleAdminCommands,
+  'welcome': handleAdminCommands,
 
   // TESTES
   'debug': handleGeneralCommands,
