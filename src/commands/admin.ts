@@ -34,8 +34,12 @@ function getQuotedMentionedJids (quoted: any): string[] {
   return Array.isArray(mentioned) ? mentioned : []
 }
 
+const INACTIVE_MESSAGE_THRESHOLD = 20
+const INACTIVE_DISPLAY_LIMIT = 15
+const INACTIVE_LIST_TTL_MS = 60 * 60 * 1000
+
 function isInativosListMessage (text: string): boolean {
-  return text.includes('MEMBROS INATIVOS') || text.includes('< 50 MENSAGENS')
+  return text.includes('MEMBROS INATIVOS') || text.includes('MENSAGENS HÁ 7 DIAS')
 }
 
 function getCanonicalJid (jid: string, lidMap: Record<string, string>): string {
@@ -65,6 +69,13 @@ function isSameAsBot (jid: string, botJid: string, lidMap: Record<string, string
   }
 
   return false
+}
+
+function isFreshInativosList (createdAt: unknown): boolean {
+  if (!createdAt || typeof createdAt !== 'string') return false
+  const created = new Date(createdAt).getTime()
+  if (Number.isNaN(created)) return false
+  return Date.now() - created <= INACTIVE_LIST_TTL_MS
 }
 
 async function isQuotedFromBot (msg: any, botJid: string): Promise<boolean> {
@@ -514,7 +525,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       const botJid = await whatsapp.getBotJid();
       const protectedKeys = await buildProtectedParticipantKeys(group.id, botJid);
 
-      // Filtrar membros com menos de 50 mensagens (excluindo bot e admins)
+      // Filtrar membros com menos de 20 mensagens (excluindo bot e admins)
       const inactiveUsers: { userJid: string, count: number }[] = [];
       const seenCanonical = new Set<string>();
 
@@ -530,7 +541,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
 
         const count = countMap.get(canonicalJid) || 0;
 
-        if (count < 50) {
+        if (count < INACTIVE_MESSAGE_THRESHOLD) {
           inactiveUsers.push({ userJid: p.userJid, count });
         }
       }
@@ -539,11 +550,11 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       inactiveUsers.sort((a, b) => a.count - b.count);
 
       if (inactiveUsers.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, "🎉 *Nenhum inativo!* Todos os membros (não-admin) enviaram 50 ou mais mensagens nos últimos 7 dias.");
+        await whatsapp.sendMessage(msg.remoteJid, `🎉 *Nenhum inativo!* Todos os membros (não-admin) enviaram ${INACTIVE_MESSAGE_THRESHOLD} ou mais mensagens nos últimos 7 dias.`);
         return true;
       }
 
-      const displayLimit = 30;
+      const displayLimit = INACTIVE_DISPLAY_LIMIT
       const displayUsers = inactiveUsers
         .filter(u => !isProtectedParticipant(u.userJid, protectedKeys, botJid, fullLidMap))
         .slice(0, displayLimit);
@@ -556,7 +567,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         jid => jid && !isProtectedParticipant(jid, protectedKeys, botJid, fullLidMap)
       );
 
-      let text = `👻 *MEMBROS INATIVOS (< 50 MENSAGENS HÁ 7 DIAS)* 👻\n`;
+      let text = `👻 *MEMBROS INATIVOS (< ${INACTIVE_MESSAGE_THRESHOLD} MENSAGENS HÁ 7 DIAS)* 👻\n`;
       text += `Total de inativos: ${inactiveUsers.length} membros.\n`;
       text += `_(Admins, donos e o Filhote são excluídos da lista)_\n\n`;
 
@@ -597,33 +608,6 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         return true
       }
 
-      if (!msg.quotedId || !msg.quoted) {
-        await whatsapp.sendMessage(
-          msg.remoteJid,
-          '❌ Responde a mensagem do *.inativos* que o Filhote mandou e use *.rm i*!'
-        )
-        return true
-      }
-
-      const quotedText = getQuotedText(msg.quoted)
-      if (!isInativosListMessage(quotedText)) {
-        await whatsapp.sendMessage(
-          msg.remoteJid,
-          '❌ O *.rm i* só funciona em cima da lista do comando *.inativos*!'
-        )
-        return true
-      }
-
-      const botJid = await whatsapp.getBotJid()
-      const quotedFromBot = await isQuotedFromBot(msg, botJid)
-      if (!quotedFromBot) {
-        await whatsapp.sendMessage(
-          msg.remoteJid,
-          '❌ Responde à *mensagem do Filhote* com a lista de inativos, não a de outra pessoa.'
-        )
-        return true
-      }
-
       const group = await (prisma as any).group.findUnique({
         where: { jid: msg.remoteJid }
       })
@@ -632,16 +616,60 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         return true
       }
 
+      const settings = parseGroupSettings(group.settings)
+      const storedList = settings.lastInativosList
+      const hasFreshStoredList =
+        Array.isArray(storedList?.jids) &&
+        storedList.jids.length > 0 &&
+        isFreshInativosList(storedList.createdAt)
+
+      const hasQuote = Boolean(msg.quotedId || msg.quoted)
+      const quotedText = getQuotedText(msg.quoted)
+      const isInativosQuote = isInativosListMessage(quotedText)
+      const botJid = await whatsapp.getBotJid()
+
+      if (!hasFreshStoredList) {
+        if (!hasQuote) {
+          await whatsapp.sendMessage(
+            msg.remoteJid,
+            '❌ Rode `.inativos` e responda a mensagem do Filhote com `.rm i`!'
+          )
+          return true
+        }
+
+        if (!isInativosQuote) {
+          await whatsapp.sendMessage(
+            msg.remoteJid,
+            '❌ O `.rm i` só funciona em cima da lista do comando `.inativos`!'
+          )
+          return true
+        }
+
+        const quotedFromBot = await isQuotedFromBot(msg, botJid)
+        if (!quotedFromBot) {
+          await whatsapp.sendMessage(
+            msg.remoteJid,
+            '❌ Responde à *mensagem do Filhote* com a lista de inativos.'
+          )
+          return true
+        }
+      } else if (hasQuote && isInativosQuote) {
+        const quotedFromBot = await isQuotedFromBot(msg, botJid)
+        if (!quotedFromBot) {
+          await whatsapp.sendMessage(
+            msg.remoteJid,
+            '❌ Responde à *mensagem do Filhote* com a lista de inativos.'
+          )
+          return true
+        }
+      }
+
       const fullLidMap = LidMapService.getFullMap()
       const protectedKeys = await buildProtectedParticipantKeys(group.id, botJid)
-      const settings = parseGroupSettings(group.settings)
-      const storedList = Array.isArray(settings.lastInativosList?.jids)
-        ? settings.lastInativosList.jids
-        : []
 
-      let candidateJids: string[] = [...storedList]
+      let candidateJids: string[] = hasFreshStoredList ? [...storedList.jids] : []
 
-      if (candidateJids.length === 0) {
+      if (candidateJids.length === 0 && hasQuote) {
         candidateJids = getQuotedMentionedJids(msg.quoted)
 
         if (candidateJids.length === 0) {

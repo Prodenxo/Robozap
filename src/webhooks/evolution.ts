@@ -52,6 +52,46 @@ export const handleWebhook = async (data: any) => {
   }
 };
 
+function extractReplyContext (message: any): {
+  quotedId?: string
+  quoted?: any
+  quotedParticipant?: string
+  mentionedJid: string[]
+} {
+  const msgContent = message?.message || {}
+
+  const context =
+    msgContent.extendedTextMessage?.contextInfo ||
+    msgContent.imageMessage?.contextInfo ||
+    msgContent.videoMessage?.contextInfo ||
+    msgContent.documentMessage?.contextInfo ||
+    msgContent.audioMessage?.contextInfo ||
+    msgContent.stickerMessage?.contextInfo ||
+    msgContent.buttonsResponseMessage?.contextInfo ||
+    msgContent.listResponseMessage?.contextInfo ||
+    null
+
+  if (!context) {
+    return { mentionedJid: [] }
+  }
+
+  const quotedId =
+    context.stanzaId ||
+    context.quotedStanzaId ||
+    context.quotedMessage?.key?.id
+
+  const quotedParticipant =
+    context.participant ||
+    context.quotedMessage?.key?.participant
+
+  return {
+    quotedId,
+    quoted: context.quotedMessage,
+    quotedParticipant,
+    mentionedJid: Array.isArray(context.mentionedJid) ? context.mentionedJid : []
+  }
+}
+
 async function handleMessageUpsert(message: any) {
   const msgContent = message.message || {};
   const textContent = 
@@ -64,15 +104,13 @@ async function handleMessageUpsert(message: any) {
   const participant = message.sender || message.key.participant || remoteJid;
   const senderName = message.pushName || 'Usuário';
 
-  // --- OMNI-SCANNER v3 ---
-  const context = findField(message, 'contextInfo');
-  const quotedParticipant = context?.participant || context?.quotedMessage?.key?.participant;
-  const mentionedJid = context?.mentionedJid || [];
-  const quotedId = context?.stanzaId; // ID Real da mensagem citada
+  const replyContext = extractReplyContext(message)
 
   // LOG SÓ PARA COMANDOS AGORA
   if (textContent.trim().startsWith('.')) {
-    console.log(`[COMANDO RECEBIDO] ${senderName}: ${textContent} (QuotedID: ${quotedId})`);
+    console.log(
+      `[COMANDO RECEBIDO] ${senderName}: ${textContent} (QuotedID: ${replyContext.quotedId || 'none'})`
+    )
   }
 
   await processMessage({
@@ -81,10 +119,10 @@ async function handleMessageUpsert(message: any) {
     participant,
     pushName: senderName,
     text: textContent,
-    quoted: context?.quotedMessage,
-    quotedId: quotedId,
-    quotedParticipant: quotedParticipant, 
-    mentionedJid: mentionedJid,
+    quoted: replyContext.quoted,
+    quotedId: replyContext.quotedId,
+    quotedParticipant: replyContext.quotedParticipant,
+    mentionedJid: replyContext.mentionedJid,
     messageType: Object.keys(msgContent)[0],
     raw: message
   });
