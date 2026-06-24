@@ -88,6 +88,7 @@ export const handleGeneralCommands = async (command: string, args: string[], msg
 ⚡ *.promover* - Dá cargo de admin (responda alguém).
 📉 *.rebaixar* / *.demitir* - Tira o cargo de admin.
 🧹 *.banir* / *.remover* - Bane um infeliz do grupo.
+🧹 *.rm i* - Remove todos os inativos da lista (responda ao *.inativos*).
 🔓 *.desban* - Desbane um usuário.
 ⚠️ *.adv* - Dá advertência a um integrante.
 🗑️ *.apagar* - Apaga uma mensagem (responda a ela).

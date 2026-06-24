@@ -7,6 +7,137 @@ import { decryptMediaLocally } from './media';
 
 const whatsapp = new WhatsAppService();
 
+function getQuotedText (quoted: any): string {
+  if (!quoted) return ''
+  return quoted.conversation || quoted.extendedTextMessage?.text || ''
+}
+
+function getQuotedMentionedJids (quoted: any): string[] {
+  if (!quoted) return []
+
+  const contextInfo =
+    quoted.extendedTextMessage?.contextInfo ||
+    quoted.imageMessage?.contextInfo ||
+    quoted.videoMessage?.contextInfo ||
+    null
+
+  const mentioned = contextInfo?.mentionedJid
+  return Array.isArray(mentioned) ? mentioned : []
+}
+
+function isInativosListMessage (text: string): boolean {
+  return text.includes('MEMBROS INATIVOS') || text.includes('< 50 MENSAGENS')
+}
+
+function getCanonicalJid (jid: string, lidMap: Record<string, string>): string {
+  if (jid.endsWith('@lid')) return lidMap[jid] || jid
+  return jid
+}
+
+function isSameAsBot (jid: string, botJid: string, lidMap: Record<string, string>): boolean {
+  if (!jid || !botJid) return false
+
+  const variants = (value: string): string[] => {
+    const set = new Set<string>([value])
+    if (value.endsWith('@lid') && lidMap[value]) set.add(lidMap[value])
+    const mappedLid = LidMapService.getLid(value)
+    if (mappedLid) set.add(mappedLid)
+    return Array.from(set)
+  }
+
+  const left = variants(jid)
+  const right = variants(botJid)
+
+  for (const a of left) {
+    for (const b of right) {
+      if (a === b) return true
+      if (a.split('@')[0] === b.split('@')[0]) return true
+    }
+  }
+
+  return false
+}
+
+async function isQuotedFromBot (msg: any, botJid: string): Promise<boolean> {
+  if (msg.quoted?.key?.fromMe === true) return true
+  if (!msg.quotedParticipant) {
+    return isInativosListMessage(getQuotedText(msg.quoted))
+  }
+
+  if (msg.quotedParticipant === botJid) return true
+
+  const botLid = LidMapService.getLid(botJid)
+  if (botLid && msg.quotedParticipant === botLid) return true
+
+  const resolvedParticipant = await whatsapp.resolveJid(msg.quotedParticipant)
+  return resolvedParticipant === botJid
+}
+
+function getQuotedBodyText (quoted: any): string {
+  if (!quoted) return ''
+  return (
+    quoted.conversation ||
+    quoted.extendedTextMessage?.text ||
+    quoted.imageMessage?.caption ||
+    quoted.videoMessage?.caption ||
+    ''
+  ).trim()
+}
+
+function findQuotedMedia (quoted: any): any {
+  if (!quoted || typeof quoted !== 'object') return null
+
+  const visit = (node: any): any => {
+    if (!node || typeof node !== 'object') return null
+    if ((node.url || node.directPath) && node.mediaKey) return node
+
+    for (const key of Object.keys(node)) {
+      if (key === 'contextInfo') continue
+      const found = visit(node[key])
+      if (found) return found
+    }
+
+    return null
+  }
+
+  return visit(quoted)
+}
+
+function buildQuotedMessageKey (msg: any): Record<string, unknown> | null {
+  if (!msg.quotedId) return null
+
+  return {
+    remoteJid: msg.remoteJid,
+    id: msg.quotedId,
+    fromMe: msg.quoted?.key?.fromMe ?? false,
+    participant: msg.quotedParticipant || msg.quoted?.key?.participant
+  }
+}
+
+async function buildMarcarMentionList (remoteJid: string): Promise<string[]> {
+  await whatsapp.syncGroupParticipants(remoteJid)
+
+  const participants: Array<{ userJid: string }> = await (prisma as any).groupParticipant.findMany({
+    where: { group: { jid: remoteJid } },
+    select: { userJid: true }
+  })
+
+  const botJid = await whatsapp.getBotJid()
+  const fullLidMap = LidMapService.getFullMap()
+
+  const resolved = await Promise.all(
+    participants.map(async participant => whatsapp.resolveJid(participant.userJid))
+  )
+
+  return Array.from(
+    new Set(
+      resolved.filter(
+        jid => jid && !isSameAsBot(jid, botJid, fullLidMap)
+      )
+    )
+  )
+}
+
 export const handleAdminCommands = async (command: string, args: string[], msg: any) => {
   const isGroup = msg.remoteJid.endsWith('@g.us');
   if (!isGroup) return false;
@@ -310,7 +441,9 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       for (const p of allParticipants) {
         const canonicalJid = getCanonical(p.userJid);
 
-        // Excluir o bot
+        // Excluir o bot (JID real, LID ou número equivalente)
+        if (isSameAsBot(canonicalJid, botJid, fullLidMap)) continue;
+        if (isSameAsBot(p.userJid, botJid, fullLidMap)) continue;
         if (canonicalJid === canonicalBotJid) continue;
 
         // Excluir admins e donos (roleCode: 1=Dono, 2=ADM_Confiavel, 3=ADM)
@@ -337,8 +470,12 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       }
 
       const displayLimit = 30;
-      const displayUsers = inactiveUsers.slice(0, displayLimit);
-      const list = displayUsers.map(u => u.userJid);
+      const displayUsers = inactiveUsers
+        .filter(u => !isSameAsBot(u.userJid, botJid, fullLidMap))
+        .slice(0, displayLimit);
+      const list = displayUsers
+        .map(u => u.userJid)
+        .filter(jid => !isSameAsBot(jid, botJid, fullLidMap));
 
       let text = `👻 *MEMBROS INATIVOS (< 50 MENSAGENS HÁ 7 DIAS)* 👻\n`;
       text += `Total de inativos: ${inactiveUsers.length} membros.\n`;
@@ -350,11 +487,127 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       });
 
       if (inactiveUsers.length > displayLimit) {
-        text += `\n...e mais ${inactiveUsers.length - displayLimit} membros inativos.`;
+        text += `\n...e mais ${inactiveUsers.length - displayLimit} membros inativos.`
       }
 
-      await whatsapp.sendMessage(msg.remoteJid, text, list);
+      text += '\n\n_Responda esta mensagem com `.rm i` para remover os citados acima._'
+
+      await whatsapp.sendMessage(msg.remoteJid, text, list)
       return true;
+    }
+
+    case 'rm': {
+      const sub = args[0]?.toLowerCase()
+      if (sub !== 'i' && sub !== 'inativos') {
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '❌ Uso: responda a lista do *.inativos* e mande *.rm i*'
+        )
+        return true
+      }
+
+      if (!msg.quotedId || !msg.quoted) {
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '❌ Responde a mensagem do *.inativos* que eu mandei pra usar *.rm i*!'
+        )
+        return true
+      }
+
+      const quotedText = getQuotedText(msg.quoted)
+      if (!isInativosListMessage(quotedText)) {
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '❌ O *.rm i* só funciona em cima da lista do comando *.inativos*!'
+        )
+        return true
+      }
+
+      const botJid = await whatsapp.getBotJid()
+      const quotedFromBot = await isQuotedFromBot(msg, botJid)
+      if (!quotedFromBot) {
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '❌ Responde à *minha* mensagem do *.inativos*, não a de outra pessoa.'
+        )
+        return true
+      }
+
+      let mentionedJids = getQuotedMentionedJids(msg.quoted)
+      if (mentionedJids.length === 0) {
+        const matches = quotedText.matchAll(/@(\d{8,15})/g)
+        for (const match of matches) {
+          mentionedJids.push(`${match[1]}@s.whatsapp.net`)
+        }
+      }
+
+      mentionedJids = Array.from(
+        new Set(
+          (await Promise.all(mentionedJids.map(jid => whatsapp.resolveJid(jid))))
+            .filter(Boolean)
+        )
+      )
+
+      const fullLidMap = LidMapService.getFullMap()
+      mentionedJids = mentionedJids.filter(
+        jid => !isSameAsBot(jid, botJid, fullLidMap)
+      )
+
+      if (mentionedJids.length === 0) {
+        await whatsapp.sendMessage(msg.remoteJid, '❌ Não achei ninguém na lista citada.')
+        return true
+      }
+
+      const group = await (prisma as any).group.findUnique({
+        where: { jid: msg.remoteJid }
+      })
+      if (!group) {
+        await whatsapp.sendMessage(msg.remoteJid, '❌ Grupo não inicializado no banco.')
+        return true
+      }
+
+      const participants = await (prisma as any).groupParticipant.findMany({
+        where: { groupId: group.id },
+        select: { userJid: true, roleCode: true }
+      })
+
+      const protectedJids = new Set<string>()
+      for (const participant of participants) {
+        if (participant.roleCode <= 3) {
+          protectedJids.add(getCanonicalJid(participant.userJid, fullLidMap))
+        }
+      }
+
+      const toRemove = mentionedJids.filter(jid => {
+        if (isSameAsBot(jid, botJid, fullLidMap)) return false
+        return !protectedJids.has(getCanonicalJid(jid, fullLidMap))
+      })
+
+      if (toRemove.length === 0) {
+        await whatsapp.sendMessage(msg.remoteJid, '⚠️ Ninguém da lista pode ser removido (só admins citados?).')
+        return true
+      }
+
+      await whatsapp.sendMessage(
+        msg.remoteJid,
+        `🧹 Removendo *${toRemove.length}* inativo(s) citados na lista...`
+      )
+
+      try {
+        await whatsapp.groupUpdateParticipant(msg.remoteJid, 'remove', toRemove)
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          `✅ *${toRemove.length}* inativo(s) removido(s) do grupo de uma vez.`
+        )
+      } catch (error) {
+        console.error('[RM I] Falha na remoção em lote:', error)
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '❌ Falha ao remover os inativos em lote. Verifica se o bot é admin e tenta de novo.'
+        )
+      }
+
+      return true
     }
 
     case 'mensagens': {
@@ -567,70 +820,55 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
 
     case 'todos':
     case 'marcar': {
-      await whatsapp.syncGroupParticipants(msg.remoteJid);
-      const participants: any[] = await (prisma as any).groupParticipant.findMany({ 
-        where: { group: { jid: msg.remoteJid } },
-        select: { userJid: true }
-      });
-      
-      const list = await Promise.all(
-        participants.map(async (u: any) => await whatsapp.resolveJid(u.userJid))
-      );
-      
-      const text = `📢 *FILHOTE CHAMANDO A TROPA!* 📢\n\n${args.join(' ') || 'Bora reagir, bando de desocupado!'}`;
-      
-      const msgContent = msg.raw?.message || {};
-      const quotedContent = msg.quoted || {};
+      const list = await buildMarcarMentionList(msg.remoteJid)
 
-      const findMedia = (m: any): any => {
-          if (!m || typeof m !== 'object') return null;
-          if ((m.url || m.directPath) && m.mediaKey) return m;
-          for (const key in m) {
-              const res = findMedia(m[key]);
-              if (res) return res;
-          }
-          return null;
-      };
+      if (list.length === 0) {
+        await whatsapp.sendMessage(msg.remoteJid, '❌ Não achei participantes para marcar neste grupo.')
+        return true
+      }
 
-      const mediaContent = findMedia(msgContent);
-      const quotedMediaContent = findMedia(quotedContent);
-      const targetMedia = quotedMediaContent || mediaContent;
+      const customText = args.join(' ').trim()
+      const quotedBody = msg.quotedId ? getQuotedBodyText(msg.quoted) : ''
+      const body = customText || quotedBody || 'Bora reagir, bando de desocupado!'
+      const text = `📢 *FILHOTE CHAMANDO A TROPA!* 📢\n\n${body}`
+
+      const targetMedia = msg.quotedId ? findQuotedMedia(msg.quoted) : null
 
       if (targetMedia) {
-        const mime = targetMedia.mimetype || '';
-        const isImage = mime.startsWith('image/');
-        const isVideo = mime.startsWith('video/');
-        const isAudio = mime.startsWith('audio/');
-        
-        let type: 'image' | 'video' | 'audio' = 'image';
-        if (isVideo) type = 'video';
-        if (isAudio) type = 'audio';
+        let base64: string | null = null
+        const mime = targetMedia.mimetype || ''
+        let type: 'image' | 'video' | 'audio' = 'image'
+        if (mime.startsWith('video/')) type = 'video'
+        if (mime.startsWith('audio/')) type = 'audio'
 
-        // Tentar descriptografar localmente
-        let base64 = await decryptMediaLocally(targetMedia);
-        if (!base64) {
-          const isQuoted = !!quotedMediaContent;
-          const targetMessageId = isQuoted ? msg.quotedId : msg.id;
-          if (targetMessageId) {
-            base64 = await whatsapp.getBase64FromMessage({ id: targetMessageId });
+        try {
+          base64 = await decryptMediaLocally(targetMedia)
+
+          if (!base64) {
+            const messageKey = buildQuotedMessageKey(msg)
+            if (messageKey) {
+              base64 = await whatsapp.getBase64FromMessage(messageKey)
+            }
           }
-        }
 
-        if (base64) {
-          await whatsapp.sendMedia(
-            msg.remoteJid,
-            base64,
-            type,
-            undefined, // quotedMsgId
-            text,      // caption
-            list       // mentions
-          );
-          return true;
+          if (base64) {
+            await whatsapp.sendMedia(
+              msg.remoteJid,
+              base64,
+              type,
+              undefined,
+              text,
+              list
+            )
+            return true
+          }
+        } catch (error) {
+          console.error('[MARCAR] Falha ao reenviar mídia citada, usando texto:', error)
         }
       }
 
-      await whatsapp.sendMessage(msg.remoteJid, text, list);
-      return true;
+      await whatsapp.sendMessage(msg.remoteJid, text, list)
+      return true
     }
 
     case 'adv':
