@@ -9,6 +9,15 @@ const whatsapp = new WhatsAppService();
 
 function getQuotedText (quoted: any): string {
   if (!quoted) return ''
+
+  if (quoted.ephemeralMessage?.message) {
+    return getQuotedText(quoted.ephemeralMessage.message)
+  }
+
+  if (quoted.viewOnceMessage?.message) {
+    return getQuotedText(quoted.viewOnceMessage.message)
+  }
+
   return quoted.conversation || quoted.extendedTextMessage?.text || ''
 }
 
@@ -59,9 +68,16 @@ function isSameAsBot (jid: string, botJid: string, lidMap: Record<string, string
 }
 
 async function isQuotedFromBot (msg: any, botJid: string): Promise<boolean> {
+  const lidMap = LidMapService.getFullMap()
+
   if (msg.quoted?.key?.fromMe === true) return true
-  if (!msg.quotedParticipant) {
-    return isInativosListMessage(getQuotedText(msg.quoted))
+
+  if (msg.quotedParticipant && isSameAsBot(msg.quotedParticipant, botJid, lidMap)) {
+    return true
+  }
+
+  if (!msg.quotedParticipant && isInativosListMessage(getQuotedText(msg.quoted))) {
+    return true
   }
 
   if (msg.quotedParticipant === botJid) return true
@@ -69,8 +85,72 @@ async function isQuotedFromBot (msg: any, botJid: string): Promise<boolean> {
   const botLid = LidMapService.getLid(botJid)
   if (botLid && msg.quotedParticipant === botLid) return true
 
+  if (!msg.quotedParticipant) return false
+
   const resolvedParticipant = await whatsapp.resolveJid(msg.quotedParticipant)
-  return resolvedParticipant === botJid
+  return isSameAsBot(resolvedParticipant, botJid, lidMap)
+}
+
+function parseGroupSettings (settings: unknown): Record<string, any> {
+  if (!settings) return {}
+  if (typeof settings === 'string') {
+    try {
+      return JSON.parse(settings)
+    } catch {
+      return {}
+    }
+  }
+  return settings as Record<string, any>
+}
+
+async function buildProtectedParticipantKeys (
+  groupId: string,
+  botJid: string
+): Promise<Set<string>> {
+  const fullLidMap = LidMapService.getFullMap()
+  const keys = new Set<string>()
+
+  const addKey = (jid: string): void => {
+    if (!jid) return
+    keys.add(jid)
+    keys.add(getCanonicalJid(jid, fullLidMap))
+    keys.add(jid.split('@')[0])
+  }
+
+  if (botJid) addKey(botJid)
+
+  const participants = await (prisma as any).groupParticipant.findMany({
+    where: { groupId },
+    select: { userJid: true, roleCode: true }
+  })
+
+  for (const participant of participants) {
+    if (participant.roleCode <= 3) addKey(participant.userJid)
+    if (botJid && isSameAsBot(participant.userJid, botJid, fullLidMap)) {
+      addKey(participant.userJid)
+    }
+  }
+
+  return keys
+}
+
+function isProtectedParticipant (
+  jid: string,
+  protectedKeys: Set<string>,
+  botJid: string,
+  lidMap: Record<string, string>
+): boolean {
+  if (!jid) return true
+  if (botJid && isSameAsBot(jid, botJid, lidMap)) return true
+
+  const candidates = [
+    jid,
+    getCanonicalJid(jid, lidMap),
+    jid.split('@')[0],
+    getCanonicalJid(jid, lidMap).split('@')[0]
+  ]
+
+  return candidates.some(candidate => protectedKeys.has(candidate))
 }
 
 function getQuotedBodyText (quoted: any): string {
@@ -432,7 +512,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       }
 
       const botJid = await whatsapp.getBotJid();
-      const canonicalBotJid = getCanonical(botJid);
+      const protectedKeys = await buildProtectedParticipantKeys(group.id, botJid);
 
       // Filtrar membros com menos de 50 mensagens (excluindo bot e admins)
       const inactiveUsers: { userJid: string, count: number }[] = [];
@@ -441,23 +521,17 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       for (const p of allParticipants) {
         const canonicalJid = getCanonical(p.userJid);
 
-        // Excluir o bot (JID real, LID ou número equivalente)
-        if (isSameAsBot(canonicalJid, botJid, fullLidMap)) continue;
-        if (isSameAsBot(p.userJid, botJid, fullLidMap)) continue;
-        if (canonicalJid === canonicalBotJid) continue;
-
-        // Excluir admins e donos (roleCode: 1=Dono, 2=ADM_Confiavel, 3=ADM)
-        if (p.roleCode <= 3) continue;
+        if (isProtectedParticipant(canonicalJid, protectedKeys, botJid, fullLidMap)) continue;
+        if (isProtectedParticipant(p.userJid, protectedKeys, botJid, fullLidMap)) continue;
 
         // Evitar duplicatas de participantes
         if (seenCanonical.has(canonicalJid)) continue;
         seenCanonical.add(canonicalJid);
 
-        // Obter contagem consolidada
         const count = countMap.get(canonicalJid) || 0;
 
         if (count < 50) {
-          inactiveUsers.push({ userJid: canonicalJid, count });
+          inactiveUsers.push({ userJid: p.userJid, count });
         }
       }
 
@@ -471,18 +545,24 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
 
       const displayLimit = 30;
       const displayUsers = inactiveUsers
-        .filter(u => !isSameAsBot(u.userJid, botJid, fullLidMap))
+        .filter(u => !isProtectedParticipant(u.userJid, protectedKeys, botJid, fullLidMap))
         .slice(0, displayLimit);
-      const list = displayUsers
-        .map(u => u.userJid)
-        .filter(jid => !isSameAsBot(jid, botJid, fullLidMap));
+
+      const list = await Promise.all(
+        displayUsers.map(async user => whatsapp.resolveJid(user.userJid))
+      );
+
+      const removableList = list.filter(
+        jid => jid && !isProtectedParticipant(jid, protectedKeys, botJid, fullLidMap)
+      );
 
       let text = `👻 *MEMBROS INATIVOS (< 50 MENSAGENS HÁ 7 DIAS)* 👻\n`;
       text += `Total de inativos: ${inactiveUsers.length} membros.\n`;
-      text += `_(Admins e donos são excluídos da lista)_\n\n`;
+      text += `_(Admins, donos e o Filhote são excluídos da lista)_\n\n`;
 
       displayUsers.forEach((u, idx) => {
-        const number = u.userJid.split('@')[0];
+        const resolved = list[idx] || u.userJid;
+        const number = resolved.split('@')[0];
         text += `${idx + 1}. @${number} — *${u.count} mensagens*\n`;
       });
 
@@ -492,7 +572,18 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
 
       text += '\n\n_Responda esta mensagem com `.rm i` para remover os citados acima._'
 
-      await whatsapp.sendMessage(msg.remoteJid, text, list)
+      const currentSettings = parseGroupSettings(group.settings)
+      currentSettings.lastInativosList = {
+        jids: removableList,
+        createdAt: new Date().toISOString()
+      }
+
+      await (prisma as any).group.update({
+        where: { id: group.id },
+        data: { settings: currentSettings }
+      })
+
+      await whatsapp.sendMessage(msg.remoteJid, text, removableList)
       return true;
     }
 
@@ -501,7 +592,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       if (sub !== 'i' && sub !== 'inativos') {
         await whatsapp.sendMessage(
           msg.remoteJid,
-          '❌ Uso: responda a lista do *.inativos* e mande *.rm i*'
+          '❌ Uso: responda a lista do *.inativos* e mande *.rm i* (somente admin).'
         )
         return true
       }
@@ -509,7 +600,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       if (!msg.quotedId || !msg.quoted) {
         await whatsapp.sendMessage(
           msg.remoteJid,
-          '❌ Responde a mensagem do *.inativos* que eu mandei pra usar *.rm i*!'
+          '❌ Responde a mensagem do *.inativos* que o Filhote mandou e use *.rm i*!'
         )
         return true
       }
@@ -528,33 +619,8 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       if (!quotedFromBot) {
         await whatsapp.sendMessage(
           msg.remoteJid,
-          '❌ Responde à *minha* mensagem do *.inativos*, não a de outra pessoa.'
+          '❌ Responde à *mensagem do Filhote* com a lista de inativos, não a de outra pessoa.'
         )
-        return true
-      }
-
-      let mentionedJids = getQuotedMentionedJids(msg.quoted)
-      if (mentionedJids.length === 0) {
-        const matches = quotedText.matchAll(/@(\d{8,15})/g)
-        for (const match of matches) {
-          mentionedJids.push(`${match[1]}@s.whatsapp.net`)
-        }
-      }
-
-      mentionedJids = Array.from(
-        new Set(
-          (await Promise.all(mentionedJids.map(jid => whatsapp.resolveJid(jid))))
-            .filter(Boolean)
-        )
-      )
-
-      const fullLidMap = LidMapService.getFullMap()
-      mentionedJids = mentionedJids.filter(
-        jid => !isSameAsBot(jid, botJid, fullLidMap)
-      )
-
-      if (mentionedJids.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, '❌ Não achei ninguém na lista citada.')
         return true
       }
 
@@ -566,25 +632,42 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         return true
       }
 
-      const participants = await (prisma as any).groupParticipant.findMany({
-        where: { groupId: group.id },
-        select: { userJid: true, roleCode: true }
-      })
+      const fullLidMap = LidMapService.getFullMap()
+      const protectedKeys = await buildProtectedParticipantKeys(group.id, botJid)
+      const settings = parseGroupSettings(group.settings)
+      const storedList = Array.isArray(settings.lastInativosList?.jids)
+        ? settings.lastInativosList.jids
+        : []
 
-      const protectedJids = new Set<string>()
-      for (const participant of participants) {
-        if (participant.roleCode <= 3) {
-          protectedJids.add(getCanonicalJid(participant.userJid, fullLidMap))
+      let candidateJids: string[] = [...storedList]
+
+      if (candidateJids.length === 0) {
+        candidateJids = getQuotedMentionedJids(msg.quoted)
+
+        if (candidateJids.length === 0) {
+          const matches = quotedText.matchAll(/@(\d{8,15})/g)
+          for (const match of matches) {
+            candidateJids.push(`${match[1]}@s.whatsapp.net`)
+          }
         }
       }
 
-      const toRemove = mentionedJids.filter(jid => {
-        if (isSameAsBot(jid, botJid, fullLidMap)) return false
-        return !protectedJids.has(getCanonicalJid(jid, fullLidMap))
-      })
+      candidateJids = Array.from(
+        new Set(
+          (await Promise.all(candidateJids.map(jid => whatsapp.resolveJid(jid))))
+            .filter(Boolean)
+        )
+      )
+
+      const toRemove = candidateJids.filter(
+        jid => !isProtectedParticipant(jid, protectedKeys, botJid, fullLidMap)
+      )
 
       if (toRemove.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, '⚠️ Ninguém da lista pode ser removido (só admins citados?).')
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '⚠️ Ninguém da lista pode ser removido. Rode `.inativos` de novo e responda a mensagem do Filhote.'
+        )
         return true
       }
 
@@ -593,20 +676,29 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         `🧹 Removendo *${toRemove.length}* inativo(s) citados na lista...`
       )
 
-      try {
-        await whatsapp.groupUpdateParticipant(msg.remoteJid, 'remove', toRemove)
-        await whatsapp.sendMessage(
-          msg.remoteJid,
-          `✅ *${toRemove.length}* inativo(s) removido(s) do grupo de uma vez.`
-        )
-      } catch (error) {
-        console.error('[RM I] Falha na remoção em lote:', error)
-        await whatsapp.sendMessage(
-          msg.remoteJid,
-          '❌ Falha ao remover os inativos em lote. Verifica se o bot é admin e tenta de novo.'
-        )
+      const { removed, failed } = await whatsapp.groupRemoveParticipants(msg.remoteJid, toRemove)
+
+      if (removed > 0) {
+        delete settings.lastInativosList
+        await (prisma as any).group.update({
+          where: { id: group.id },
+          data: { settings }
+        })
       }
 
+      if (removed === 0) {
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '❌ Não consegui remover ninguém. Confirma se o Filhote é admin do grupo e tenta de novo.'
+        )
+        return true
+      }
+
+      const summary = failed > 0
+        ? `✅ Removidos: *${removed}* | Falhas: *${failed}*`
+        : `✅ *${removed}* inativo(s) removido(s) do grupo.`
+
+      await whatsapp.sendMessage(msg.remoteJid, summary)
       return true
     }
 

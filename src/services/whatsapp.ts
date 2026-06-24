@@ -156,7 +156,82 @@ export class WhatsAppService {
       return realJid;
     } catch (error: any) {
       console.error(`[EVOLUTION ERROR] ${action}:`, error.response?.data || error.message);
-      return participants[0];
+      throw error;
+    }
+  }
+
+  async groupRemoveParticipants (
+    groupJid: string,
+    participants: string[]
+  ): Promise<{ removed: number, failed: number }> {
+    if (participants.length === 0) return { removed: 0, failed: 0 }
+
+    const resolveForRemove = (jid: string): string => {
+      if (jid.endsWith('@s.whatsapp.net')) {
+        return LidMapService.getLid(jid) || jid
+      }
+      return jid
+    }
+
+    const resolved = Array.from(new Set(participants.map(resolveForRemove)))
+
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/group/updateParticipant/${this.instance}`,
+        {
+          groupJid,
+          action: 'remove',
+          participants: resolved
+        },
+        { headers: this.headers }
+      )
+
+      const updates = response.data?.updateParticipants
+      if (Array.isArray(updates) && updates.length > 0) {
+        let removed = 0
+        let failed = 0
+
+        for (const item of updates) {
+          const status = String(item?.status ?? '')
+          if (status === '200' || status === '201') removed++
+          else failed++
+        }
+
+        if (removed > 0) return { removed, failed }
+      }
+
+      return { removed: resolved.length, failed: 0 }
+    } catch (bulkError: any) {
+      console.error(
+        '[WHATSAPP] Remoção em lote falhou, tentando um a um:',
+        bulkError.response?.data || bulkError.message
+      )
+
+      let removed = 0
+      let failed = 0
+
+      for (const participant of resolved) {
+        try {
+          await axios.post(
+            `${this.baseUrl}/group/updateParticipant/${this.instance}`,
+            {
+              groupJid,
+              action: 'remove',
+              participants: [participant]
+            },
+            { headers: this.headers }
+          )
+          removed++
+        } catch (singleError: any) {
+          failed++
+          console.error(
+            `[WHATSAPP] Falha ao remover ${participant}:`,
+            singleError.response?.data || singleError.message
+          )
+        }
+      }
+
+      return { removed, failed }
     }
   }
 
@@ -508,9 +583,19 @@ export class WhatsAppService {
               });
 
               let roleCode = 5;
-              const pAdmin = p.admin || p.role || p.roleCode;
-              if (pAdmin === 'superadmin' || pAdmin === 'admin' || p.isSuperAdmin || p.isAdmin) {
-                  roleCode = pAdmin === 'superadmin' ? 1 : 3;
+              const pAdmin = p.admin ?? p.role ?? p.roleCode;
+              const isGroupAdmin =
+                pAdmin === 'superadmin' ||
+                pAdmin === 'admin' ||
+                pAdmin === true ||
+                p.isSuperAdmin === true ||
+                p.isAdmin === true ||
+                pAdmin === 1 ||
+                pAdmin === 2 ||
+                pAdmin === 3;
+
+              if (isGroupAdmin) {
+                  roleCode = pAdmin === 'superadmin' || pAdmin === 1 ? 1 : 3;
               }
 
               console.log(`[SYNC DEBUG] User ${jid} mapped admin role: ${pAdmin} -> roleCode: ${roleCode}`);
