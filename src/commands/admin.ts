@@ -4,6 +4,11 @@ import { prisma } from '../services/database';
 import { PermissionGuard } from '../core/Guards';
 import { LidMapService } from '../services/lidMap';
 import { decryptMediaLocally } from './media';
+import {
+  buildActivityIndex,
+  getActivityCount,
+  getParticipantDedupeKey
+} from '../services/activity';
 
 const whatsapp = new WhatsAppService();
 
@@ -76,71 +81,6 @@ function isFreshInativosList (createdAt: unknown): boolean {
   const created = new Date(createdAt).getTime()
   if (Number.isNaN(created)) return false
   return Date.now() - created <= INACTIVE_LIST_TTL_MS
-}
-
-function collectJidAliases (jid: string, lidMap: Record<string, string>): string[] {
-  if (!jid) return []
-
-  const aliases = new Set<string>()
-  const add = (value?: string | null): void => {
-    if (!value) return
-    aliases.add(value)
-    aliases.add(value.split('@')[0])
-  }
-
-  add(jid)
-  add(getCanonicalJid(jid, lidMap))
-  add(LidMapService.getLid(jid))
-
-  if (jid.endsWith('@lid') && lidMap[jid]) {
-    add(lidMap[jid])
-  }
-
-  return Array.from(aliases).filter(Boolean)
-}
-
-function buildMessageCountMap (
-  logs: Array<{ userJid: string, _count: { messageId: number } }>,
-  lidMap: Record<string, string>
-): Map<string, number> {
-  const counts = new Map<string, number>()
-
-  for (const log of logs) {
-    const increment = log._count.messageId
-    for (const alias of collectJidAliases(log.userJid, lidMap)) {
-      counts.set(alias, (counts.get(alias) || 0) + increment)
-    }
-  }
-
-  return counts
-}
-
-function getMessageCount (
-  participantJid: string,
-  counts: Map<string, number>,
-  lidMap: Record<string, string>
-): number {
-  let max = 0
-
-  for (const alias of collectJidAliases(participantJid, lidMap)) {
-    max = Math.max(max, counts.get(alias) || 0)
-  }
-
-  return max
-}
-
-function getParticipantDedupeKey (jid: string, lidMap: Record<string, string>): string {
-  const canonical = getCanonicalJid(jid, lidMap)
-  if (canonical.includes('@s.whatsapp.net')) {
-    return canonical.split('@')[0]
-  }
-
-  const mapped = jid.endsWith('@lid') ? lidMap[jid] : LidMapService.getLid(jid)
-  if (mapped?.includes('@s.whatsapp.net')) {
-    return mapped.split('@')[0]
-  }
-
-  return canonical
 }
 
 async function isQuotedFromBot (msg: any, botJid: string): Promise<boolean> {
@@ -468,52 +408,38 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-      // Buscar todos os logs de mensagens agrupados
-      const rawParticipants = await (prisma as any).messageLog.groupBy({
-        by: ['userJid'],
-        where: {
-          groupId: group.id,
-          createdAt: { gte: sevenDaysAgo }
-        },
-        _count: {
-          messageId: true
-        }
-      });
-
       const fullLidMap = LidMapService.getFullMap();
-
-      const consolidatedMap = buildMessageCountMap(rawParticipants, fullLidMap);
+      const activityIndex = await buildActivityIndex(group.id, sevenDaysAgo);
 
       const allParticipants: Array<{ userJid: string }> = await (prisma as any).groupParticipant.findMany({
         where: { groupId: group.id },
         select: { userJid: true }
       });
 
-      const activeMemberKeys = new Set<string>();
-      for (const p of allParticipants) {
-        activeMemberKeys.add(getParticipantDedupeKey(p.userJid, fullLidMap));
-      }
-
       const botJid = await whatsapp.getBotJid();
 
-      const sortedParticipants = allParticipants
+      if (activityIndex.totalLogs === 0) {
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '📈 *Sem mensagens registradas nos últimos 7 dias.*\n\n' +
+          'O bot só contabiliza mensagens enviadas *depois* que entrou no grupo. ' +
+          'Aguarde alguns dias de conversa para o ranking ficar preciso.'
+        );
+        return true;
+      }
+
+      const ranked = allParticipants
         .map((p: { userJid: string }) => ({
           userJid: p.userJid,
-          count: getMessageCount(p.userJid, consolidatedMap, fullLidMap)
+          count: getActivityCount(p.userJid, activityIndex, fullLidMap)
         }))
         .filter((p: { userJid: string, count: number }) => {
           if (isProtectedParticipant(p.userJid, new Set(), botJid, fullLidMap)) return false
-          return activeMemberKeys.has(getParticipantDedupeKey(p.userJid, fullLidMap))
+          return p.count > 0
         })
         .sort((a: { count: number }, b: { count: number }) => b.count - a.count)
         .slice(0, 10);
 
-      if (sortedParticipants.every(p => p.count === 0)) {
-        await whatsapp.sendMessage(msg.remoteJid, "📈 Nenhuma atividade registrada no grupo nos últimos 7 dias.");
-        return true;
-      }
-
-      const ranked = sortedParticipants.filter(p => p.count > 0);
       if (ranked.length === 0) {
         await whatsapp.sendMessage(msg.remoteJid, "📈 Nenhuma atividade registrada no grupo nos últimos 7 dias.");
         return true;
@@ -546,29 +472,25 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-      // Buscar participantes COM roleCode para filtrar admins
       const allParticipants = await (prisma as any).groupParticipant.findMany({
         where: { groupId: group.id },
         select: { userJid: true, roleCode: true }
       });
 
-      // Agrupa logs de mensagens ativos nos últimos 7 dias
-      const activeLogs = await (prisma as any).messageLog.groupBy({
-        by: ['userJid'],
-        where: {
-          groupId: group.id,
-          createdAt: { gte: sevenDaysAgo }
-        },
-        _count: {
-          messageId: true
-        }
-      });
-
       const fullLidMap = LidMapService.getFullMap();
-      const countMap = buildMessageCountMap(activeLogs, fullLidMap);
-
+      const activityIndex = await buildActivityIndex(group.id, sevenDaysAgo);
       const botJid = await whatsapp.getBotJid();
       const protectedKeys = await buildProtectedParticipantKeys(group.id, botJid);
+
+      if (activityIndex.totalLogs === 0) {
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '⚠️ *Sem mensagens registradas nos últimos 7 dias.*\n\n' +
+          'O bot só contabiliza mensagens enviadas *depois* que entrou no grupo. ' +
+          'Aguarde alguns dias de conversa antes de usar `.inativos`.'
+        );
+        return true;
+      }
 
       const inactiveUsers: { userJid: string, count: number }[] = [];
       const seenParticipants = new Set<string>();
@@ -580,7 +502,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         if (seenParticipants.has(dedupeKey)) continue;
         seenParticipants.add(dedupeKey);
 
-        const count = getMessageCount(p.userJid, countMap, fullLidMap);
+        const count = getActivityCount(p.userJid, activityIndex, fullLidMap);
 
         if (count < INACTIVE_MESSAGE_THRESHOLD) {
           inactiveUsers.push({ userJid: p.userJid, count });
@@ -610,6 +532,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
 
       let text = `👻 *MEMBROS INATIVOS (< ${INACTIVE_MESSAGE_THRESHOLD} MENSAGENS HÁ 7 DIAS)* 👻\n`;
       text += `Total de inativos: ${inactiveUsers.length} membros.\n`;
+      text += `Mensagens rastreadas pelo bot: *${activityIndex.totalLogs}* (últimos 7 dias).\n`;
       text += `_(Admins, donos e o Filhote são excluídos da lista)_\n\n`;
 
       displayUsers.forEach((u, idx) => {

@@ -93,18 +93,30 @@ function extractReplyContext (message: any): {
 }
 
 async function handleMessageUpsert(message: any) {
-  const msgContent = message.message || {};
+  const msgContent = message.message || message.content || {};
   const textContent = 
     msgContent.conversation || 
     msgContent.extendedTextMessage?.text || 
+    msgContent.ephemeralMessage?.message?.conversation ||
+    msgContent.ephemeralMessage?.message?.extendedTextMessage?.text ||
     findField(msgContent, 'caption') || 
     '';
 
-  const remoteJid = message.key.remoteJid;
-  const participant = message.sender || message.key.participant || remoteJid;
-  const senderName = message.pushName || 'Usuário';
+  const remoteJid = message.key?.remoteJid || message.remoteJid;
+  const participant =
+    message.participant ||
+    message.sender ||
+    message.key?.participant ||
+    findField(message, 'participant') ||
+    remoteJid;
+  const senderName = message.pushName || message.key?.pushName || 'Usuário';
 
   const replyContext = extractReplyContext(message)
+
+  const messageType =
+    message.messageType ||
+    Object.keys(msgContent)[0] ||
+    'unknown'
 
   // LOG SÓ PARA COMANDOS AGORA
   if (textContent.trim().startsWith('.')) {
@@ -123,7 +135,7 @@ async function handleMessageUpsert(message: any) {
     quotedId: replyContext.quotedId,
     quotedParticipant: replyContext.quotedParticipant,
     mentionedJid: replyContext.mentionedJid,
-    messageType: Object.keys(msgContent)[0],
+    messageType,
     raw: message
   });
 }

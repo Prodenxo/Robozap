@@ -55,7 +55,8 @@ export const processMessage = async (msg: MessageData) => {
         'pollUpdateMessage',
         'emptyMessage'
       ];
-      if (msg.messageType && !ignoredTypes.includes(msg.messageType)) {
+      const messageType = msg.messageType || 'unknown';
+      if (!ignoredTypes.includes(messageType)) {
           await stats.trackMessage(msg.participant, msg.remoteJid, msg.id, msg.text, msg.pushName);
       }
   }
