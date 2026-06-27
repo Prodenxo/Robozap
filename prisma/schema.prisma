@@ -86,8 +86,8 @@ model RoleEvent {
   code          String   // Codigo curto do role
   group         Group    @relation(fields: [groupId], references: [id])
   groupId       String
-  title         String
-  description   String?
+  title         String   @db.Text
+  description   String?  @db.Text
   createdBy     String
   createdAt     DateTime @default(now())
   active        Boolean  @default(true)

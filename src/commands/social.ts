@@ -164,11 +164,14 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
           msg.remoteJid,
           buildRoleCreatedMessage(newRole)
         )
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error creating role:', error)
+        const isTooLong = error?.code === 'P2000'
         await whatsapp.sendMessage(
           msg.remoteJid,
-          '❌ *Não consegui criar o rolê.* Tenta de novo com um texto um pouco menor ou sem caracteres estranhos.'
+          isTooLong
+            ? '❌ *Texto do rolê grande demais pro banco.* Faz redeploy do robozap (atualização do banco) e tenta de novo.'
+            : '❌ *Não consegui criar o rolê.* Tenta de novo em instantes.'
         )
       }
       return true
