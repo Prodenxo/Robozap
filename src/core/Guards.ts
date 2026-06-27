@@ -15,26 +15,35 @@ export class PermissionGuard {
     const lidMap = LidMapService.getFullMap()
     const aliases = collectJidAliases(userJid, lidMap)
 
-    const byAlias = await prisma.groupParticipant.findFirst({
+    let matches = await prisma.groupParticipant.findMany({
       where: {
         group: { jid: groupJid },
         userJid: { in: aliases }
       }
     })
 
-    if (byAlias) return byAlias
+    if (matches.length === 0) {
+      const targetPhone = normalizePhoneKey(userJid.split('@')[0])
+      if (!targetPhone) return null
 
-    const targetPhone = normalizePhoneKey(userJid.split('@')[0])
-    if (!targetPhone) return null
+      const allInGroup = await prisma.groupParticipant.findMany({
+        where: { group: { jid: groupJid } }
+      })
 
-    const allInGroup = await prisma.groupParticipant.findMany({
-      where: { group: { jid: groupJid } }
-    })
+      matches = allInGroup.filter(
+        (participant) =>
+          normalizePhoneKey(participant.userJid.split('@')[0]) === targetPhone
+      )
+    }
 
-    return allInGroup.find(
-      (participant) =>
-        normalizePhoneKey(participant.userJid.split('@')[0]) === targetPhone
-    ) || null
+    if (matches.length === 0) return null
+
+    return matches.sort((a, b) => {
+      if (a.roleCode !== b.roleCode) return a.roleCode - b.roleCode
+      if (a.userJid.includes('@s.whatsapp.net') && !b.userJid.includes('@s.whatsapp.net')) return -1
+      if (!a.userJid.includes('@s.whatsapp.net') && b.userJid.includes('@s.whatsapp.net')) return 1
+      return 0
+    })[0]
   }
 
   /**

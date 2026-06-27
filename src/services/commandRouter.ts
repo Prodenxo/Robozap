@@ -92,17 +92,19 @@ export const processMessage = async (msg: MessageData) => {
 
         const isEssential = ['menu', 'vencimento', 'ajuda', 'filhote.ajuda'].includes(command);
         const allowedForAll = ['role.vou','vou','role.nvou','nvou','vounao','role.sair','role.encerrar','role.cancelar','role.criar','resenha.criar','role.elencerrar','roles','role','role.participar','resenha'];
-        if (!isEssential && !allowedForAll.includes(command)) {
-          let hasPermission = await PermissionGuard.canExecute(
-            msg.participant,
+        const adminModeBypass = ['modoadmin'];
+
+        if (!isEssential && !allowedForAll.includes(command) && !adminModeBypass.includes(command)) {
+          let hasPermission = await whatsapp.isParticipantAdmin(
             msg.remoteJid,
-            PermissionGuard.ROLES.ADM
+            msg.participant
           );
 
           if (!hasPermission) {
-            hasPermission = await whatsapp.isParticipantAdmin(
+            hasPermission = await PermissionGuard.canExecute(
+              msg.participant,
               msg.remoteJid,
-              msg.participant
+              PermissionGuard.ROLES.ADM
             );
           }
 

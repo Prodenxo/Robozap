@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { prisma } from './database';
 import { LidMapService } from './lidMap';
-import { normalizePhoneKey, formatBrazilDisplayPhone, collectJidAliases } from './activity';
+import { normalizePhoneKey, formatBrazilDisplayPhone, collectJidAliases, getParticipantDedupeKey } from './activity';
 
 dotenv.config();
 
@@ -664,19 +664,183 @@ export class WhatsAppService {
           }
       }
 
-      // Remover participantes do grupo no banco que não foram listados neste sincronismo (evita duplicatas e limpa quem saiu)
-      if (syncedJids.length > 0) {
-          await (prisma as any).groupParticipant.deleteMany({
-              where: {
-                  groupId: group.id,
-                  userJid: { notIn: syncedJids }
-              }
-          });
+      // Mescla duplicatas (LID vs número) e remove quem saiu do grupo — sem quebrar FK
+      try {
+        await this.mergeDuplicateGroupParticipants(group.id)
+        await this.cleanupStaleGroupParticipants(group.id, syncedJids)
+      } catch (cleanupErr) {
+        console.warn('[SYNC WARNING] Falha ao limpar/mesclar participantes:', cleanupErr)
       }
+
       return participants;
     } catch (error) {
       console.error('[SYNC ERROR]:', error);
       return [];
+    }
+  }
+
+  private buildParticipantKeepSet (syncedJids: string[]): Set<string> {
+    const keep = new Set<string>()
+    const lidMap = LidMapService.getFullMap()
+
+    for (const jid of syncedJids) {
+      keep.add(jid)
+      keep.add(jid.split('@')[0])
+
+      for (const [lid, real] of Object.entries(lidMap)) {
+        if (real === jid) keep.add(lid)
+      }
+    }
+
+    return keep
+  }
+
+  private pickCanonicalParticipant<T extends { id: string, userJid: string, roleCode: number }> (
+    participants: T[]
+  ): T {
+    return [...participants].sort((a, b) => {
+      if (a.roleCode !== b.roleCode) return a.roleCode - b.roleCode
+      if (a.userJid.includes('@s.whatsapp.net') && !b.userJid.includes('@s.whatsapp.net')) return -1
+      if (!a.userJid.includes('@s.whatsapp.net') && b.userJid.includes('@s.whatsapp.net')) return 1
+      return 0
+    })[0]
+  }
+
+  private async mergeParticipantRecords (canonicalId: string, duplicateId: string): Promise<void> {
+    if (canonicalId === duplicateId) return
+
+    const roleParts = await (prisma as any).roleParticipation.findMany({
+      where: { participantId: duplicateId }
+    })
+
+    for (const part of roleParts) {
+      try {
+        await (prisma as any).roleParticipation.upsert({
+          where: {
+            roleId_participantId: {
+              roleId: part.roleId,
+              participantId: canonicalId
+            }
+          },
+          update: { status: part.status },
+          create: {
+            roleId: part.roleId,
+            participantId: canonicalId,
+            status: part.status
+          }
+        })
+        await (prisma as any).roleParticipation.delete({ where: { id: part.id } })
+      } catch {
+        // conflito de merge — ignora
+      }
+    }
+
+    const niches = await (prisma as any).nicheMembership.findMany({
+      where: { participantId: duplicateId }
+    })
+
+    for (const niche of niches) {
+      try {
+        await (prisma as any).nicheMembership.upsert({
+          where: {
+            nicheId_participantId: {
+              nicheId: niche.nicheId,
+              participantId: canonicalId
+            }
+          },
+          update: {},
+          create: {
+            nicheId: niche.nicheId,
+            participantId: canonicalId
+          }
+        })
+        await (prisma as any).nicheMembership.delete({ where: { id: niche.id } })
+      } catch {
+        // conflito de merge — ignora
+      }
+    }
+  }
+
+  private async mergeDuplicateGroupParticipants (groupId: string): Promise<void> {
+    const lidMap = LidMapService.getFullMap()
+    const all = await (prisma as any).groupParticipant.findMany({ where: { groupId } })
+    const buckets = new Map<string, typeof all>()
+
+    for (const participant of all) {
+      const key = getParticipantDedupeKey(participant.userJid, lidMap)
+      if (!buckets.has(key)) buckets.set(key, [])
+      buckets.get(key)!.push(participant)
+    }
+
+    for (const group of buckets.values()) {
+      if (group.length <= 1) continue
+
+      const canonical = this.pickCanonicalParticipant(group)
+      const bestRole = Math.min(...group.map((p: { roleCode: number }) => p.roleCode))
+
+      if (canonical.roleCode !== bestRole) {
+        await (prisma as any).groupParticipant.update({
+          where: { id: canonical.id },
+          data: { roleCode: bestRole }
+        })
+      }
+
+      for (const dup of group) {
+        if (dup.id === canonical.id) continue
+        await this.mergeParticipantRecords(canonical.id, dup.id)
+        try {
+          await (prisma as any).groupParticipant.delete({ where: { id: dup.id } })
+        } catch {
+          // ainda tem vínculo — mantém registro duplicado
+        }
+      }
+    }
+  }
+
+  private async cleanupStaleGroupParticipants (
+    groupId: string,
+    syncedJids: string[]
+  ): Promise<void> {
+    const keepSet = this.buildParticipantKeepSet(syncedJids)
+    const stale = await (prisma as any).groupParticipant.findMany({
+      where: {
+        groupId,
+        userJid: { notIn: Array.from(keepSet) }
+      }
+    })
+
+    const lidMap = LidMapService.getFullMap()
+    const all = await (prisma as any).groupParticipant.findMany({ where: { groupId } })
+
+    for (const row of stale) {
+      const key = getParticipantDedupeKey(row.userJid, lidMap)
+      const canonical = all.find(
+        (p: { id: string, userJid: string, roleCode: number }) =>
+          p.id !== row.id &&
+          keepSet.has(p.userJid) &&
+          getParticipantDedupeKey(p.userJid, lidMap) === key
+      )
+
+      if (canonical) {
+        await this.mergeParticipantRecords(canonical.id, row.id)
+        try {
+          await (prisma as any).groupParticipant.delete({ where: { id: row.id } })
+        } catch {
+          // FK restante — não apaga
+        }
+        continue
+      }
+
+      const roleCount = await (prisma as any).roleParticipation.count({
+        where: { participantId: row.id }
+      })
+      const nicheCount = await (prisma as any).nicheMembership.count({
+        where: { participantId: row.id }
+      })
+
+      if (roleCount === 0 && nicheCount === 0) {
+        await (prisma as any).groupParticipant.delete({ where: { id: row.id } })
+      }
     }
   }
 
@@ -776,48 +940,26 @@ export class WhatsAppService {
       where: { groupId: group.id, userJid: { in: Array.from(aliasSet) } }
     })
 
-    let canonical = matches.find((p: { userJid: string }) =>
-      p.userJid.includes('@s.whatsapp.net')
-    ) || matches[0]
-
-    if (!canonical) {
-      canonical = await (prisma as any).groupParticipant.create({
+    if (matches.length === 0) {
+      return await (prisma as any).groupParticipant.create({
         data: {
           groupId: group.id,
           userJid: resolvedJid,
           roleCode: 5
         }
       })
-      return canonical
     }
 
+    const canonical = [...matches].sort((a: any, b: any) => {
+      if (a.roleCode !== b.roleCode) return a.roleCode - b.roleCode
+      if (a.userJid.includes('@s.whatsapp.net') && !b.userJid.includes('@s.whatsapp.net')) return -1
+      if (!a.userJid.includes('@s.whatsapp.net') && b.userJid.includes('@s.whatsapp.net')) return 1
+      return 0
+    })[0]
     const duplicates = matches.filter((p: { id: string }) => p.id !== canonical.id)
-    for (const dup of duplicates) {
-      const parts = await (prisma as any).roleParticipation.findMany({
-        where: { participantId: dup.id }
-      })
 
-      for (const part of parts) {
-        try {
-          await (prisma as any).roleParticipation.upsert({
-            where: {
-              roleId_participantId: {
-                roleId: part.roleId,
-                participantId: canonical.id
-              }
-            },
-            update: { status: part.status },
-            create: {
-              roleId: part.roleId,
-              participantId: canonical.id,
-              status: part.status
-            }
-          })
-          await (prisma as any).roleParticipation.delete({ where: { id: part.id } })
-        } catch {
-          // conflito de merge — ignora
-        }
-      }
+    for (const dup of duplicates) {
+      await this.mergeParticipantRecords(canonical.id, dup.id)
 
       try {
         await (prisma as any).groupParticipant.delete({ where: { id: dup.id } })

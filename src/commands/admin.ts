@@ -324,14 +324,14 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
 
   await whatsapp.syncGroupParticipants(msg.remoteJid);
 
-  let hasPermission = await PermissionGuard.canExecute(
-    msg.participant,
-    msg.remoteJid,
-    PermissionGuard.ROLES.ADM
-  );
+  let hasPermission = await whatsapp.isParticipantAdmin(msg.remoteJid, msg.participant);
 
   if (!hasPermission) {
-    hasPermission = await whatsapp.isParticipantAdmin(msg.remoteJid, msg.participant);
+    hasPermission = await PermissionGuard.canExecute(
+      msg.participant,
+      msg.remoteJid,
+      PermissionGuard.ROLES.ADM
+    );
   }
 
   if (!hasPermission) {
