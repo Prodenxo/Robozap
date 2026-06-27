@@ -233,18 +233,23 @@ function getOwnMediaCaption (rawMessage: any): string {
   return caption.replace(/^\s+|\s+$/g, '')
 }
 
+const MARCAR_DEFAULT_TEXT =
+  '📢 *FILHOTE CHAMANDO A TROPA!* 📢\n\nBora reagir, bando de desocupado!'
+
 function buildMarcarBody (msg: any): string {
   const fromCommand = extractTextAfterCommand(msg.text || '')
-  if (fromCommand) return fromCommand
+  if (fromCommand.trim()) return fromCommand
 
   const ownCaption = stripMarcarCommand(getOwnMediaCaption(msg.raw))
-  if (ownCaption) return ownCaption
+  if (ownCaption.trim()) return ownCaption
 
   if (msg.quotedId) {
-    return getQuotedBodyText(msg.quoted)
+    const quotedText = getQuotedBodyText(msg.quoted)
+    if (quotedText) return quotedText
+    if (findMedia(msg.quoted)) return ''
   }
 
-  return ''
+  return MARCAR_DEFAULT_TEXT
 }
 
 function buildMediaMessageKey (msg: any, fromQuoted: boolean): Record<string, unknown> | null {
@@ -978,20 +983,13 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       }
 
       const body = buildMarcarBody(msg)
+      const textToSend = body || MARCAR_DEFAULT_TEXT
       const msgContent = unwrapMessageContent(msg.raw?.message) || {}
       const quotedContent = msg.quoted || {}
       const quotedMedia = findMedia(quotedContent)
       const ownMedia = findMedia(msgContent)
       const targetMedia = quotedMedia || ownMedia
       const fromQuoted = Boolean(quotedMedia)
-
-      if (!body && !targetMedia) {
-        await whatsapp.sendMessage(
-          msg.remoteJid,
-          '❌ Manda texto, foto/vídeo com legenda ou responda uma mensagem para marcar todo mundo.'
-        )
-        return true
-      }
 
       if (targetMedia) {
         let base64: string | null = null
@@ -1016,7 +1014,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
               base64,
               type,
               undefined,
-              body,
+              textToSend,
               list
             )
             return true
@@ -1024,17 +1022,9 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         } catch (error) {
           console.error('[MARCAR] Falha ao reenviar mídia, usando só texto:', error)
         }
-
-        if (!body) {
-          await whatsapp.sendMessage(
-            msg.remoteJid,
-            '❌ Não consegui replicar a mídia. Tenta enviar de novo ou responda a mensagem com `.marcar`.'
-          )
-          return true
-        }
       }
 
-      await whatsapp.sendMessage(msg.remoteJid, body, list)
+      await whatsapp.sendMessage(msg.remoteJid, textToSend, list)
       return true
     }
 
