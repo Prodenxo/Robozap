@@ -77,6 +77,7 @@ export const processMessage = async (msg: MessageData) => {
   const isGroup = msg.remoteJid.endsWith('@g.us');
 
   if (isGroup && ADMIN_COMMANDS.has(command)) {
+    console.log(`[ADMIN] .${command} | grupo=${msg.remoteJid} | user=${msg.participant} (${msg.pushName})`)
     await whatsapp.syncGroupParticipants(msg.remoteJid);
   }
 

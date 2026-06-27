@@ -123,7 +123,7 @@ async function handleMessageUpsert(message: any) {
 
   if (textContent.trim().startsWith('.')) {
     console.log(
-      `[COMANDO RECEBIDO] ${senderName}: ${textContent} (QuotedID: ${replyContext.quotedId || 'none'})`
+      `[COMANDO RECEBIDO] ${senderName}: ${textContent} | grupo=${remoteJid} | QuotedID: ${replyContext.quotedId || 'none'}`
     )
   }
 

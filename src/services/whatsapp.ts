@@ -4,16 +4,68 @@ import fs from 'fs';
 import path from 'path';
 import { prisma } from './database';
 import { LidMapService } from './lidMap';
-import { normalizePhoneKey, formatBrazilDisplayPhone, collectJidAliases, getParticipantDedupeKey } from './activity';
+import { normalizePhoneKey, formatBrazilDisplayPhone, collectJidAliases, getParticipantDedupeKey, isPlaceholderPushName } from './activity';
 
 dotenv.config();
 
 const cleanValue = (val: string | undefined) => val?.replace(/['"]+/g, '').trim() || '';
 
+function extractParticipantDisplayName (participant: any): string | null {
+  const name =
+    participant?.pushName ||
+    participant?.name ||
+    participant?.verifiedName ||
+    participant?.notify ||
+    participant?.displayName ||
+    null
+
+  return name && !isPlaceholderPushName(name) ? String(name).trim() : null
+}
+
+function resolveParticipantAdminInfo (
+  participant: any,
+  groupOwner?: string | null
+): { isAdmin: boolean, roleCode: number } {
+  const adminVal = participant?.admin ?? participant?.Admin ?? participant?.role
+  const pid = String(participant?.id || participant?.jid || '')
+
+  if (
+    adminVal === 'superadmin' ||
+    adminVal === 'SUPERADMIN' ||
+    adminVal === 1 ||
+    participant?.isSuperAdmin === true
+  ) {
+    return { isAdmin: true, roleCode: 1 }
+  }
+
+  if (
+    adminVal === 'admin' ||
+    adminVal === 'ADMIN' ||
+    adminVal === 2 ||
+    adminVal === 3 ||
+    adminVal === true ||
+    participant?.isAdmin === true
+  ) {
+    return { isAdmin: true, roleCode: 3 }
+  }
+
+  if (groupOwner && pid) {
+    const ownerBare = groupOwner.split('@')[0]
+    const pidBare = pid.split('@')[0]
+    if (groupOwner === pid || ownerBare === pidBare) {
+      return { isAdmin: true, roleCode: 1 }
+    }
+  }
+
+  return { isAdmin: false, roleCode: 5 }
+}
+
 export class WhatsAppService {
   private baseUrl: string;
   private apiKey: string;
   private instance: string;
+  private groupParticipantsCache = new Map<string, { at: number, participants: any[] }>();
+  private readonly participantsCacheTtlMs = 60_000;
 
   constructor() {
     this.baseUrl = cleanValue(process.env.EVOLUTION_API_URL);
@@ -518,8 +570,9 @@ export class WhatsAppService {
 
   async getContact(number: string) {
     try {
+      const payload = number.includes('@') ? number : number.replace(/\D/g, '')
       const response = await axios.post(`${this.baseUrl}/contact/getContact/${this.instance}`, {
-        number: number
+        number: payload
       }, { headers: this.headers });
       
       const contact = response.data?.contact || response.data;
@@ -529,46 +582,168 @@ export class WhatsAppService {
     }
   }
 
+  private async fetchGroupParticipantsFromApi (groupJid: string): Promise<any[]> {
+    let response;
+    try {
+      response = await axios.get(`${this.baseUrl}/group/participants/${this.instance}?groupJid=${groupJid}`, {
+        headers: this.headers
+      });
+    } catch (e1: any) {
+      console.warn(`[SYNC WARNING] /group/participants failed (${e1.message}), trying legacy /group/getParticipants...`);
+      response = await axios.get(`${this.baseUrl}/group/getParticipants/${this.instance}?groupJid=${groupJid}`, {
+        headers: this.headers
+      });
+    }
+
+    if (!response?.data) return []
+
+    if (Array.isArray(response.data)) return response.data
+    if (Array.isArray(response.data.participants)) return response.data.participants
+    if (Array.isArray(response.data.participantsData)) return response.data.participantsData
+
+    if (typeof response.data === 'object') {
+      for (const key in response.data) {
+        if (Array.isArray(response.data[key])) return response.data[key]
+      }
+    }
+
+    return []
+  }
+
+  async getGroupParticipantsCached (groupJid: string): Promise<any[]> {
+    const cached = this.groupParticipantsCache.get(groupJid)
+    if (cached && Date.now() - cached.at < this.participantsCacheTtlMs) {
+      return cached.participants
+    }
+
+    const participants = await this.fetchGroupParticipantsFromApi(groupJid)
+    this.groupParticipantsCache.set(groupJid, { at: Date.now(), participants })
+    return participants
+  }
+
+  private participantMatchesNeedles (participant: any, needles: Set<string>): boolean {
+    const fields = [
+      participant?.id,
+      participant?.jid,
+      participant?.lid,
+      participant?.realJid,
+      participant?.phoneNumber,
+      participant?.phone_number,
+      participant?.number,
+      participant?.phone,
+      participant?.participantPn,
+      participant?.participantAlt,
+      participant?.pn
+    ].filter(Boolean).map(String)
+
+    return fields.some((field) => {
+      if (needles.has(field)) return true
+      const bare = field.split('@')[0]
+      return needles.has(bare)
+    })
+  }
+
+  async getNameFromGroupParticipants (groupJid: string, userJid: string): Promise<string | null> {
+    const resolved = await this.resolveParticipantJid(userJid, groupJid)
+    const lidMap = LidMapService.getFullMap()
+    const needles = new Set<string>()
+
+    for (const alias of [
+      ...collectJidAliases(resolved, lidMap),
+      ...collectJidAliases(userJid, lidMap)
+    ]) {
+      needles.add(alias)
+      needles.add(alias.split('@')[0])
+    }
+
+    const participants = await this.getGroupParticipantsCached(groupJid)
+
+    for (const participant of participants) {
+      if (!this.participantMatchesNeedles(participant, needles)) continue
+      const name = extractParticipantDisplayName(participant)
+      if (name) return name
+    }
+
+    return null
+  }
+
+  async resolveParticipantDisplayName (userJid: string, groupJid?: string): Promise<string> {
+    if (!userJid) return 'Membro'
+
+    const resolved = groupJid
+      ? await this.resolveParticipantJid(userJid, groupJid)
+      : await this.resolveJid(userJid)
+
+    const lidMap = LidMapService.getFullMap()
+    const aliases = [
+      ...collectJidAliases(resolved, lidMap),
+      ...collectJidAliases(userJid, lidMap)
+    ]
+
+    for (const alias of aliases) {
+      try {
+        const user = await (prisma as any).user.findUnique({ where: { jid: alias } })
+        if (user?.pushName && !isPlaceholderPushName(user.pushName)) {
+          return user.pushName.trim()
+        }
+      } catch {
+        // ignora
+      }
+    }
+
+    if (groupJid) {
+      const groupName = await this.getNameFromGroupParticipants(groupJid, resolved)
+      if (groupName) {
+        await (prisma as any).user.upsert({
+          where: { jid: resolved },
+          update: { pushName: groupName },
+          create: { jid: resolved, pushName: groupName }
+        })
+        return groupName
+      }
+    }
+
+    for (const attempt of [resolved, resolved.split('@')[0], ...aliases]) {
+      const contact = await this.getContact(attempt)
+      const contactName =
+        contact?.pushName ||
+        contact?.name ||
+        contact?.verifiedName ||
+        contact?.notify
+
+      if (contactName && !isPlaceholderPushName(contactName)) {
+        const name = String(contactName).trim()
+        await (prisma as any).user.upsert({
+          where: { jid: resolved },
+          update: { pushName: name },
+          create: { jid: resolved, pushName: name }
+        })
+        return name
+      }
+    }
+
+    const phone = formatBrazilDisplayPhone(resolved)
+    return phone ? `+55 ${phone}` : 'Membro'
+  }
+
   async syncGroupParticipants(groupJid: string) {
     try {
-      let response;
-      try {
-        response = await axios.get(`${this.baseUrl}/group/participants/${this.instance}?groupJid=${groupJid}`, {
-          headers: this.headers
-        });
-      } catch (e1: any) {
-        console.warn(`[SYNC WARNING] /group/participants failed (${e1.message}), trying legacy /group/getParticipants...`);
-        response = await axios.get(`${this.baseUrl}/group/getParticipants/${this.instance}?groupJid=${groupJid}`, {
-          headers: this.headers
-        });
-      }
-
-      let participants = [];
-      if (response && response.data) {
-          if (Array.isArray(response.data)) {
-              participants = response.data;
-          } else if (Array.isArray(response.data.participants)) {
-              participants = response.data.participants;
-          } else if (Array.isArray(response.data.participantsData)) {
-              participants = response.data.participantsData;
-          } else if (typeof response.data === 'object') {
-              // Tenta achar qualquer propriedade que seja array caso a estrutura mude
-              for (const key in response.data) {
-                  if (Array.isArray(response.data[key])) {
-                      participants = response.data[key];
-                      break;
-                  }
-              }
-          }
-      }
+      const participants = await this.fetchGroupParticipantsFromApi(groupJid)
+      this.groupParticipantsCache.set(groupJid, { at: Date.now(), participants })
       
       console.log(`[SYNC DEBUG] Synced ${participants.length} participants for group ${groupJid}`);
       
       let groupName: string | null = null;
+      let groupOwner: string | null = null;
       try {
         const metadata = await this.getGroupMetadata(groupJid);
         if (metadata) {
           groupName = metadata.subject || (metadata as any).subjectName || (metadata as any).name || null;
+          groupOwner =
+            (metadata as any).owner ||
+            (metadata as any).groupOwner ||
+            (metadata as any)?.groupMetadata?.owner ||
+            null;
         }
       } catch (err) {
         console.warn(`[SYNC WARNING] Failed to fetch group metadata:`, err);
@@ -627,29 +802,33 @@ export class WhatsAppService {
 
               syncedJids.push(jid);
 
-              const name = p.pushName || p.name || p.verifiedName || 'Usuário';
-              await (prisma as any).user.upsert({
+              const displayName = extractParticipantDisplayName(p)
+              if (displayName) {
+                await (prisma as any).user.upsert({
                   where: { jid },
-                  update: { pushName: name },
-                  create: { jid, pushName: name }
-              });
-
-              let roleCode = 5;
-              const pAdmin = p.admin ?? p.role ?? p.roleCode;
-              const isGroupAdmin =
-                pAdmin === 'superadmin' ||
-                pAdmin === 'admin' ||
-                pAdmin === true ||
-                p.isSuperAdmin === true ||
-                p.isAdmin === true ||
-                pAdmin === 1 ||
-                pAdmin === 2 ||
-                pAdmin === 3;
-
-              if (isGroupAdmin) {
-                  roleCode = pAdmin === 'superadmin' || pAdmin === 1 ? 1 : 3;
+                  update: { pushName: displayName },
+                  create: { jid, pushName: displayName }
+                })
+              } else {
+                await (prisma as any).user.upsert({
+                  where: { jid },
+                  update: {},
+                  create: { jid, pushName: 'Membro' }
+                })
               }
 
+              const adminInfo = resolveParticipantAdminInfo(p, groupOwner)
+              let roleCode = adminInfo.roleCode
+
+              const existing = await (prisma as any).groupParticipant.findUnique({
+                where: { groupId_userJid: { groupId: group.id, userJid: jid } }
+              })
+
+              if (!adminInfo.isAdmin && existing && existing.roleCode < 5) {
+                roleCode = existing.roleCode
+              }
+
+              const pAdmin = p.admin ?? p.role ?? p.roleCode;
               console.log(`[SYNC DEBUG] User ${jid} mapped admin role: ${pAdmin} -> roleCode: ${roleCode}`);
 
               await (prisma as any).groupParticipant.upsert({
@@ -859,54 +1038,23 @@ export class WhatsAppService {
         needles.add(alias.split('@')[0])
       }
 
-      const targetPhone = normalizePhoneKey(resolved.split('@')[0])
+      let groupOwner: string | null = null
+      try {
+        const metadata = await this.getGroupMetadata(groupJid)
+        groupOwner =
+          (metadata as any)?.owner ||
+          (metadata as any)?.groupOwner ||
+          (metadata as any)?.groupMetadata?.owner ||
+          null
+      } catch {
+        // ignora
+      }
 
       for (const participant of participants) {
-        const fields = [
-          participant.id,
-          participant.jid,
-          participant.lid,
-          participant.realJid,
-          participant.phoneNumber,
-          participant.phone_number,
-          participant.number,
-          participant.phone,
-          participant.participantPn,
-          participant.participantAlt,
-          participant.pn
-        ].filter(Boolean)
+        if (!this.participantMatchesNeedles(participant, needles)) continue
 
-        const matches = fields.some((field) => {
-          const value = String(field)
-          if (needles.has(value)) return true
-
-          const bare = value.split('@')[0]
-          if (needles.has(bare)) return true
-
-          if (value.includes('@')) {
-            return normalizePhoneKey(bare) === targetPhone
-          }
-
-          return normalizePhoneKey(value) === targetPhone
-        })
-
-        if (!matches) continue
-
-        const adminFlag =
-          participant.admin ??
-          participant.role ??
-          participant.roleCode
-
-        return (
-          adminFlag === 'superadmin' ||
-          adminFlag === 'admin' ||
-          adminFlag === true ||
-          participant.isSuperAdmin === true ||
-          participant.isAdmin === true ||
-          adminFlag === 1 ||
-          adminFlag === 2 ||
-          adminFlag === 3
-        )
+        const adminInfo = resolveParticipantAdminInfo(participant, groupOwner)
+        if (adminInfo.isAdmin) return true
       }
     } catch (error) {
       console.warn('[WHATSAPP] isParticipantAdmin falhou:', error)
@@ -932,8 +1080,8 @@ export class WhatsAppService {
 
     await (prisma as any).user.upsert({
       where: { jid: resolvedJid },
-      update: { pushName: pushName || undefined },
-      create: { jid: resolvedJid, pushName: pushName || 'Usuário' }
+      update: pushName && !isPlaceholderPushName(pushName) ? { pushName } : {},
+      create: { jid: resolvedJid, pushName: pushName && !isPlaceholderPushName(pushName) ? pushName : 'Membro' }
     })
 
     const matches = await (prisma as any).groupParticipant.findMany({
@@ -972,36 +1120,7 @@ export class WhatsAppService {
   }
 
   async resolveName(jid: string, groupJid?: string) {
-    if (!jid || typeof jid !== 'string') return 'Usuário';
-    const number = jid.split('@')[0];
-    
-    // 1. Check Database
-    try {
-      const user = await (prisma as any).user.findUnique({ where: { jid } });
-      if (user?.pushName && user.pushName !== 'Usuário' && !user.pushName.includes('@')) {
-          return user.pushName;
-      }
-    } catch (e) {}
-
-    // 2. Fallback: Sync Group if provided
-    if (groupJid) {
-        await this.syncGroupParticipants(groupJid);
-        const user = await (prisma as any).user.findUnique({ where: { jid } });
-        if (user?.pushName && user.pushName !== 'Usuário') return user.pushName;
-    }
-
-    // 3. Last resort API fallback
-    const contact = await this.getContact(number);
-    if (contact?.pushName) {
-        await (prisma as any).user.upsert({
-            where: { jid },
-            update: { pushName: contact.pushName },
-            create: { jid, pushName: contact.pushName }
-        });
-        return contact.pushName;
-    }
-
-    return number;
+    return this.resolveParticipantDisplayName(jid, groupJid)
   }
 
   /**

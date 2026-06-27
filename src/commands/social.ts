@@ -2,7 +2,7 @@ import { WhatsAppService } from '../services/whatsapp';
 import { prisma } from '../services/database';
 import { botTexts } from '../config/texts';
 import { LidMapService } from '../services/lidMap';
-import { getParticipantDedupeKey, formatBrazilDisplayPhone, normalizePhoneKey } from '../services/activity';
+import { getParticipantDedupeKey, formatBrazilDisplayPhone, isPlaceholderPushName } from '../services/activity';
 
 const whatsapp = new WhatsAppService();
 
@@ -13,7 +13,7 @@ function isPhoneLikeName (name: string, phoneRaw: string): boolean {
   if (!nameDigits || nameDigits.length < 10) return false
 
   const phoneDigits = phoneRaw.replace(/\D/g, '')
-  const normalized = normalizePhoneKey(phoneRaw)
+  const normalized = nameDigits.length >= 11 ? nameDigits.slice(-11) : nameDigits
 
   return (
     nameDigits === phoneDigits ||
@@ -23,22 +23,17 @@ function isPhoneLikeName (name: string, phoneRaw: string): boolean {
   )
 }
 
-function formatRoleParticipantName (
+async function resolveRoleParticipantName (
   participant: { userJid: string, user?: { pushName?: string | null } },
-  resolvedName: string
-): string {
-  const phoneRaw = participant.userJid.split('@')[0]
+  groupJid: string,
+  resolvedJid: string
+): Promise<string> {
   const dbName = participant.user?.pushName?.trim()
-
-  let name = resolvedName.trim()
-
-  if (isPhoneLikeName(name, phoneRaw)) {
-    name = dbName && !isPhoneLikeName(dbName, phoneRaw) ? dbName : 'Sem nome'
-  } else if (!name || name === 'Usuário') {
-    name = dbName || 'Sem nome'
+  if (dbName && !isPlaceholderPushName(dbName) && !isPhoneLikeName(dbName, participant.userJid)) {
+    return dbName
   }
 
-  return name
+  return whatsapp.resolveParticipantDisplayName(resolvedJid, groupJid)
 }
 
 function formatNumberedListLine (
@@ -85,8 +80,7 @@ async function buildNumberedRoleList (
     const { participant } = entries[i].participation
     const resolvedJid = await whatsapp.resolveParticipantJid(participant.userJid, groupJid)
     const displayPhone = formatBrazilDisplayPhone(resolvedJid)
-    const resolvedName = await whatsapp.resolveName(resolvedJid, groupJid)
-    const name = formatRoleParticipantName(participant, resolvedName)
+    const name = await resolveRoleParticipantName(participant, groupJid, resolvedJid)
     lines.push(formatNumberedListLine(i + 1, name, displayPhone))
   }
 

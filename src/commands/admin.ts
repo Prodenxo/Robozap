@@ -306,16 +306,21 @@ async function buildMarcarMentionList (remoteJid: string): Promise<string[]> {
   const fullLidMap = LidMapService.getFullMap()
 
   const resolved = await Promise.all(
-    participants.map(async participant => whatsapp.resolveJid(participant.userJid))
+    participants.map(async (participant) =>
+      whatsapp.resolveParticipantJid(participant.userJid, remoteJid)
+    )
   )
 
-  return Array.from(
+  const list = Array.from(
     new Set(
       resolved.filter(
         jid => jid && !isSameAsBot(jid, botJid, fullLidMap)
       )
     )
   )
+
+  console.log(`[MARCAR] Grupo ${remoteJid} — ${list.length} menções (participantes DB: ${participants.length})`)
+  return list
 }
 
 export const handleAdminCommands = async (command: string, args: string[], msg: any) => {
@@ -335,8 +340,15 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
   }
 
   if (!hasPermission) {
+      console.log(`[ADMIN] Sem permissão: .${command} | grupo=${msg.remoteJid} | user=${msg.participant}`)
       await whatsapp.sendMessage(msg.remoteJid, botTexts.admin.noPerm);
       return true;
+  }
+
+  if (command === 'marcar' || command === 'todos') {
+    console.log(
+      `[MARCAR] Iniciando | grupo=${msg.remoteJid} | user=${msg.participant} | quoted=${msg.quotedId || 'none'} | texto="${(msg.text || '').slice(0, 60)}"`
+    )
   }
 
   const rawTargetJid = msg.quotedParticipant || msg.mentionedJid?.[0];

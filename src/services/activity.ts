@@ -171,3 +171,15 @@ export function getParticipantDedupeKey (jid: string, lidMap: Record<string, str
 
   return canonical
 }
+
+export function isPlaceholderPushName (name?: string | null): boolean {
+  if (!name?.trim()) return true
+  const normalized = name.trim().toLowerCase()
+  return (
+    normalized === 'usuário' ||
+    normalized === 'usuario' ||
+    normalized === 'sem nome' ||
+    normalized === 'user' ||
+    normalized === 'membro'
+  )
+}
