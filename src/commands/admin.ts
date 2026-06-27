@@ -180,23 +180,69 @@ function getQuotedBodyText (quoted: any): string {
   ).trim()
 }
 
-function findQuotedMedia (quoted: any): any {
-  if (!quoted || typeof quoted !== 'object') return null
+function findMedia (m: any): any {
+  if (!m || typeof m !== 'object') return null
+  if ((m.url || m.directPath) && m.mediaKey) return m
+  for (const key in m) {
+    const res = findMedia(m[key])
+    if (res) return res
+  }
+  return null
+}
 
-  const visit = (node: any): any => {
-    if (!node || typeof node !== 'object') return null
-    if ((node.url || node.directPath) && node.mediaKey) return node
+function unwrapMessageContent (message: any): any {
+  if (!message) return null
+  if (message.ephemeralMessage?.message) return unwrapMessageContent(message.ephemeralMessage.message)
+  if (message.viewOnceMessage?.message) return unwrapMessageContent(message.viewOnceMessage.message)
+  return message
+}
 
-    for (const key of Object.keys(node)) {
-      if (key === 'contextInfo') continue
-      const found = visit(node[key])
-      if (found) return found
-    }
+function stripMarcarCommand (text: string): string {
+  return text.replace(/^\.(?:marcar|todos)\b\s*/i, '').trim()
+}
 
-    return null
+function getOwnMediaCaption (rawMessage: any): string {
+  const content = unwrapMessageContent(rawMessage?.message || rawMessage)
+  if (!content) return ''
+
+  return (
+    content.imageMessage?.caption ||
+    content.videoMessage?.caption ||
+    content.documentMessage?.caption ||
+    ''
+  ).trim()
+}
+
+function buildMarcarBody (msg: any, args: string[]): string {
+  const customText = args.join(' ').trim()
+  if (customText) return customText
+
+  const ownCaption = stripMarcarCommand(getOwnMediaCaption(msg.raw))
+  if (ownCaption) return ownCaption
+
+  if (msg.quotedId) {
+    return getQuotedBodyText(msg.quoted)
   }
 
-  return visit(quoted)
+  return ''
+}
+
+function buildMediaMessageKey (msg: any, fromQuoted: boolean): Record<string, unknown> | null {
+  if (fromQuoted) return buildQuotedMessageKey(msg)
+
+  const key = msg.raw?.key
+  if (!key?.id && !msg.id) return null
+
+  return {
+    remoteJid: key?.remoteJid || msg.remoteJid,
+    id: key?.id || msg.id,
+    fromMe: key?.fromMe ?? false,
+    participant: key?.participant || msg.participant
+  }
+}
+
+function findQuotedMedia (quoted: any): any {
+  return findMedia(quoted)
 }
 
 function buildQuotedMessageKey (msg: any): Record<string, unknown> | null {
@@ -911,12 +957,21 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         return true
       }
 
-      const customText = args.join(' ').trim()
-      const quotedBody = msg.quotedId ? getQuotedBodyText(msg.quoted) : ''
-      const body = customText || quotedBody || 'Bora reagir, bando de desocupado!'
-      const text = `📢 *FILHOTE CHAMANDO A TROPA!* 📢\n\n${body}`
+      const body = buildMarcarBody(msg, args)
+      const msgContent = unwrapMessageContent(msg.raw?.message) || {}
+      const quotedContent = msg.quoted || {}
+      const quotedMedia = findMedia(quotedContent)
+      const ownMedia = findMedia(msgContent)
+      const targetMedia = quotedMedia || ownMedia
+      const fromQuoted = Boolean(quotedMedia)
 
-      const targetMedia = msg.quotedId ? findQuotedMedia(msg.quoted) : null
+      if (!body && !targetMedia) {
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '❌ Manda texto, foto/vídeo com legenda ou responda uma mensagem para marcar todo mundo.'
+        )
+        return true
+      }
 
       if (targetMedia) {
         let base64: string | null = null
@@ -929,7 +984,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
           base64 = await decryptMediaLocally(targetMedia)
 
           if (!base64) {
-            const messageKey = buildQuotedMessageKey(msg)
+            const messageKey = buildMediaMessageKey(msg, fromQuoted)
             if (messageKey) {
               base64 = await whatsapp.getBase64FromMessage(messageKey)
             }
@@ -941,17 +996,25 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
               base64,
               type,
               undefined,
-              text,
+              body,
               list
             )
             return true
           }
         } catch (error) {
-          console.error('[MARCAR] Falha ao reenviar mídia citada, usando texto:', error)
+          console.error('[MARCAR] Falha ao reenviar mídia, usando só texto:', error)
+        }
+
+        if (!body) {
+          await whatsapp.sendMessage(
+            msg.remoteJid,
+            '❌ Não consegui replicar a mídia. Tenta enviar de novo ou responda a mensagem com `.marcar`.'
+          )
+          return true
         }
       }
 
-      await whatsapp.sendMessage(msg.remoteJid, text, list)
+      await whatsapp.sendMessage(msg.remoteJid, body, list)
       return true
     }
 

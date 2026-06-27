@@ -88,7 +88,7 @@ export const handleGeneralCommands = async (command: string, args: string[], msg
 
 👑 *ADMINISTRAÇÃO*
 👑 *.admins* / *.adms* — Marca administradores.
-📢 *.marcar* / *.todos* [msg] — Marca todo mundo (cite msg opcional).
+📢 *.marcar* / *.todos* [msg] — Replica foto/texto marcando todos (ou responda uma msg).
 ⚡ *.promover* — Promove admin (marque ou responda).
 📉 *.rebaixar* / *.demitir* — Remove cargo de admin.
 🧹 *.banir* / *.remover* / *.ban* — Remove do grupo.
