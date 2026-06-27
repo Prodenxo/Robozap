@@ -7,7 +7,8 @@ import axios from 'axios';
 import {
   downloadYouTubeAudioProxy,
   enqueueYouTubeDownload
-} from './youtubeDownload';
+} from './youtubeDownload'
+import { ensureYtDlpCookiesFile, shouldUseYoutubeCookies } from './youtubeCookies'
 
 const execAsync = promisify(exec)
 
@@ -120,6 +121,8 @@ export class MediaService {
     const tokens = await fetchYtSessionTokens()
     const strategies = getStrategies(tokens)
     const formatArgs = buildFormatArgs(kind)
+    const cookiesFile = shouldUseYoutubeCookies() ? ensureYtDlpCookiesFile() : null
+    const cookiesArg = cookiesFile ? `--cookies ${shellQuote(cookiesFile)}` : ''
     let lastError: Error | null = null
 
     for (const strategy of strategies) {
@@ -132,6 +135,7 @@ export class MediaService {
         'yt-dlp',
         '--js-runtimes deno',
         proxyArg,
+        cookiesArg,
         strategy.extraArgs,
         formatArgs,
         '--no-playlist',
@@ -141,7 +145,7 @@ export class MediaService {
         shellQuote(targetPath)
       ].filter(Boolean).join(' ')
 
-      console.log(`[YT-DLP] Tentativa (${strategy.name}): ${url}`)
+      console.log(`[YT-DLP] Tentativa (${strategy.name})${cookiesFile ? ' + cookies' : ''}: ${url}`)
 
       try {
         await execAsync(command, { maxBuffer: 10 * 1024 * 1024 })

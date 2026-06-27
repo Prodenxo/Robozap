@@ -65,66 +65,81 @@ export const handleGeneralCommands = async (command: string, args: string[], msg
     case 'menu':
     case 'ajuda':
     case 'comandos':
-      const menuText = `🌟 *ROBOZAP - MENU DE MANDAMENTOS* 🌟
+    case 'filhote.ajuda':
+      const menuText = `🌟 *ROBOZAP - MENU DE COMANDOS* 🌟
 
-🔥 *DE CRIA (IA)*
-🤖 *.filhote* [pergunta] - Troca ideia com o brabo.
-🧐 *.resumir* - Pega a visão das últimas mensagens.
+📋 *.menu* / *.ajuda* / *.comandos* — Este menu.
+
+🔥 *IA*
+🤖 *.filhote* [pergunta] — Conversa com a IA.
+🧐 *.resumir* / *.resumo* — Resume as últimas mensagens.
 
 🖼️ *MÍDIA & FIGURINHAS*
-🖼️ *.fig* - Faz figurinha de imagem, gif ou vídeo.
-✍️ *.brat* [texto] - Cria sticker de texto clássico.
-🎬 *.bratv* [texto] - Cria sticker de texto animado.
-🎨 *.emojimix* / *.mix* [👻+👀] - Combina dois emojis.
-💬 *.qc* / *.quote* [texto] - Cria sticker de citação de chat.
-🎵 *.tocar* / *.musica* [nome] - Baixa áudio do YouTube.
-🎥 *.igdl* / *.instadl* [link] - Baixa vídeo do Instagram.
-🎥 *.fbdl* [link] - Baixa vídeo do Facebook.
-🎥 *.tkdl* [link] - Baixa vídeo do TikTok.
-🎥 *.ytdl* [link] - Baixa vídeo do YouTube.
+🖼️ *.fig* / *.sticker* — Figurinha (imagem, gif ou vídeo citado).
+✍️ *.brat* [texto] — Sticker de texto clássico.
+🎬 *.bratv* [texto] — Sticker de texto animado.
+🎨 *.emojimix* / *.mix* [👻+👀] — Combina dois emojis.
+💬 *.qc* / *.quote* [texto] — Sticker estilo citação.
+🎵 *.tocar* / *.musica* [nome] — Áudio do YouTube.
+🎥 *.igdl* / *.ig* / *.instadl* [link] — Vídeo Instagram.
+🎥 *.fbdl* / *.fb* [link] — Vídeo Facebook.
+🎥 *.tkdl* / *.tiktok* [link] — Vídeo TikTok.
+🎥 *.ytdl* / *.yt* [link] — Vídeo YouTube.
 
 👑 *ADMINISTRAÇÃO*
-👑 *.admins* - Marca os administradores do grupo.
-⚡ *.promover* - Dá cargo de admin (responda alguém).
-📉 *.rebaixar* / *.demitir* - Tira o cargo de admin.
-🧹 *.banir* / *.remover* - Bane um infeliz do grupo.
-🧹 *.rm i* - Remove todos os inativos da lista (responda ao *.inativos*).
-🔓 *.desban* - Desbane um usuário.
-⚠️ *.adv* - Dá advertência a um integrante.
-🗑️ *.apagar* - Apaga uma mensagem (responda a ela).
-🔓 *.abrir* / *.fechar* - Controla quem pode mandar msg.
-📊 *.ativos* / *.inativos* - Lista ranking de atividade.
+👑 *.admins* / *.adms* — Marca administradores.
+📢 *.marcar* / *.todos* [msg] — Marca todo mundo (cite msg opcional).
+⚡ *.promover* — Promove admin (marque ou responda).
+📉 *.rebaixar* / *.demitir* — Remove cargo de admin.
+🧹 *.banir* / *.remover* / *.ban* — Remove do grupo.
+🔓 *.desban* / *.desbanir* — Desbane usuário.
+⚠️ *.adv* / *.alertar* / *.avisar* — Advertência (2 = ban).
+🗑️ *.apagar* / *.limpar* — Apaga msg (responda ela).
+🔓 *.abrir* / *.fechar* — Abre/fecha grupo (só admins falam).
+🔒 *.modoadmin* [ligar/desligar] — Só admins usam comandos.
+📊 *.ativos* — Top 10 mais ativos (7 dias).
+👻 *.inativos* / *.desocupados* / *.passivos* — Lista inativos (< 20 msgs).
+🧹 *.rm i* — Remove inativos (responda a msg do *.inativos*).
+📊 *.mensagens* — Conta msgs de alguém (7 dias).
+🗑️ *.zerar* / *.limpar.logs* — Zera contagem de msgs do grupo.
+⏰ *.alertaprog* [30m/2h] [msg] — Alerta programado marcando todos.
+👋 *.boasvindas* — Configura msg de entrada no grupo.
 
-🎲 *DIVERSÃO & JOGOS*
-🎲 *.sortear* - Sorteia a rapaziada do grupo.
-🎯 *.chance* [pergunta] - Vê a chance de dar bom.
-🔍 *.detector* - Testa se o papo é verdade ou caô.
-💘 *.casal* - Sorteia um casal aleatório do grupo.
-🍻 *.bafometro* - Mede a cachaça do cidadão.
-📏 *.viadometro* / *.gadometro* - Mede a porcentagem.
-🎲 *.dado* / *.moeda* - Joga a sorte pro alto.
-📖 *.versiculo* / *.biblia* - Manda uma palavra sagrada.
-🍀 *.sortedodia* - Vê tua sorte de hoje.
+🎲 *DIVERSÃO*
+🎲 *.sortear* / *.sorteio* [qtd] — Sorteia membros.
+🎯 *.chance* [pergunta] — Chance % + sorteado.
+🔍 *.detector* — Verdade ou mentira.
+💘 *.casal* — Sorteia casal (ou marque 2).
+🍻 *.bafometro* / *.viadometro* / *.gadometro* — Medidor %.
+🎲 *.dado* [lados] / *.d6* / *.d20* — Rola dado.
+🪙 *.moeda* — Cara ou coroa.
 
-📱 *PERFIL (MEUS DADOS)*
-👤 *.meusdados* / *.perfil* - Vê teu status no grupo.
-🗓️ *.vencimento* - Consulta a validade da assinatura.
-📝 *.bio* [texto] - Muda tua biografia no robô.
-🎂 *.niver* [DD/MM] - Define a data do teu aniversário.
-🎈 *.nivers* - Vê os aniversariantes do grupo.
-📸 *.meuig* [user] - Cadastra o teu Instagram.
-📍 *.local* [lugar] - Cadastra tua cidade.
-📸 *.iglist* / *.locallist* - Lista cadastros da tropa.
-📻 *.radio* / *.playlist* - Playlist oficial da tropa.
-🤫 *.meignore* - Faz o bot ignorar tuas mensagens.
+📱 *PERFIL*
+👤 *.meusdados* / *.perfil* / *.dados* — Seu perfil no grupo.
+🗓️ *.vencimento* — Validade da assinatura do bot.
+📝 *.bio* [texto] — Sua bio no robô.
+🎂 *.niver* [DD/MM] — Data de aniversário.
+📸 *.meuig* / *.ig* [user] — Cadastra Instagram.
+📍 *.local* [cidade] — Cadastra localização.
+📸 *.iglist* — Lista Instagrams do grupo.
+📍 *.locallist* — Lista locais do grupo.
+🤫 *.ignoreme* [on/off] — Ignorar menções do bot.
 
 📅 *ROLÊS & RESENHAS*
-🍻 *.role.criar* [Nome] - Agenda um novo rolê.
-🎉 *.roles* / *.resenha* - Mostra os rolês marcados.
-✅ *.vou* / *.nvou* - Confirma ou cancela presença.
-🏁 *.role.encerrar* - Fecha as inscrições do rolê.
+🍻 *.role.criar* / *.resenha.criar* [nome] — Cria rolê.
+🎉 *.roles* / *.resenha* [código] — Lista rolês.
+✅ *.vou* / *.role.vou* [código] — Confirma presença.
+❌ *.nvou* / *.role.nvou* / *.vounao* — Cancela presença.
+🏁 *.role.encerrar* — Encerra inscrições.
+🚫 *.role.cancelar* / *.resenha.cancelar* — Cancela rolê.
+📻 *.radio* / *.playlist* [link] — Playlist do grupo.
 
-_Dúvidas? Mande um zap pro Mohammed._`;
+📋 *LISTAS / NICHOS*
+✅ *.lista.entrar* / *.nicho.entrar* — Entra na lista.
+❌ *.lista.sair* / *.nicho.sair* — Sai da lista.
+_(Aliases: .lista.sim, .nicho.quero, .lista.nao, etc.)_
+
+_Dúvidas? Fale com o Mohammed._`;
       
       await whatsapp.sendMessage(msg.remoteJid, menuText);
       return true;

@@ -24,8 +24,6 @@ const FALLBACK_PIPED_BASES = [
   'https://pipedapi.moomoo.me',
   'https://api-piped.mha.fi',
   'https://pipedapi.syncpundit.io',
-  'https://pipedapi.adminforge.de',
-  'https://pipedapi.ducks.party',
   'https://pipedapi.kavin.rocks'
 ];
 
@@ -332,7 +330,7 @@ async function requestCobaltAudio (
       audioBitrate: '128',
       youtubeBetterAudio: true
     },
-    { headers, timeout: 10000 }
+    { headers, timeout: 45000 }
   );
 
   if (data.status === 'error') {
@@ -357,32 +355,81 @@ async function requestCobaltAudio (
   return { downloadUrl, base: normalizeApiBase(base) };
 }
 
+async function promiseAny<T> (promises: Array<Promise<T>>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const errors: unknown[] = []
+    let rejected = 0
+
+    if (promises.length === 0) {
+      reject(Object.assign(new Error('Nenhuma promise fornecida.'), { errors: [] }))
+      return
+    }
+
+    for (const promise of promises) {
+      void Promise.resolve(promise).then(resolve, (error: unknown) => {
+        errors.push(error)
+        rejected += 1
+        if (rejected === promises.length) {
+          reject(Object.assign(new Error('Todas as promises falharam.'), { errors }))
+        }
+      })
+    }
+  })
+}
+
+function isYoutubeBlockError (message: string): boolean {
+  const lower = message.toLowerCase()
+  return (
+    lower.includes('youtube.login') ||
+    lower.includes('youtube.api_error') ||
+    lower.includes('no_session_tokens') ||
+    lower.includes('error.api.youtube') ||
+    lower.includes('sign in') ||
+    lower.includes('bot')
+  )
+}
+
 async function tryCobaltDownload (
   url: string,
-  outputPath: string
+  outputPath: string,
+  bases?: string[]
 ): Promise<void> {
-  const bases = resolveCobaltBases();
-  if (!bases.length) {
-    throw new Error('COBALT_API_URL não configurado');
+  const localBases = envList('COBALT_API_URL')
+  const allBases = bases ?? resolveCobaltBases()
+  const ordered = uniqueBases([
+    ...localBases,
+    ...allBases.filter(base => !localBases.includes(base))
+  ])
+
+  if (!ordered.length) {
+    throw new Error('COBALT_API_URL não configurado')
   }
 
-  let lastError: Error | null = null;
+  let lastError: Error | null = null
+  let skipPublicCobalt = false
 
-  for (const base of bases) {
+  for (const base of ordered) {
+    if (skipPublicCobalt && !localBases.includes(base)) continue
+
     try {
-      console.log(`[COBALT] Processando ${url} via ${base}`);
-      const { downloadUrl } = await requestCobaltAudio(base, url);
-      await downloadStreamToFile(downloadUrl, outputPath, 'audio/mpeg', base);
-      console.log(`[COBALT] Download concluído via ${base}`);
-      return;
+      console.log(`[COBALT] Processando ${url} via ${base}`)
+      const { downloadUrl } = await requestCobaltAudio(base, url)
+      await downloadStreamToFile(downloadUrl, outputPath, 'audio/mpeg', base)
+      console.log(`[COBALT] Download concluído via ${base}`)
+      return
     } catch (error: unknown) {
-      const message = getAxiosErrorDetail(error);
-      console.warn(`[COBALT] Falha em ${base}: ${message}`);
-      lastError = new Error(message);
+      const message = getAxiosErrorDetail(error)
+      console.warn(`[COBALT] Falha em ${base}: ${message}`)
+      lastError = new Error(message)
+
+      if (localBases.includes(base) && isYoutubeBlockError(message)) {
+        skipPublicCobalt = true
+        console.warn('[COBALT] Bloqueio YouTube no Cobalt local — pulando instâncias públicas')
+      }
     }
   }
 
-  throw lastError ?? new Error('Nenhum endpoint Cobalt respondeu.');
+  throw lastError ?? new Error('Nenhum endpoint Cobalt respondeu.')
 }
 
 
@@ -448,33 +495,53 @@ export function enqueueYouTubeDownload<T> (
   return run;
 }
 
-/** Baixa áudio do YouTube sem depender de cookies do usuário. */
+/** Baixa áudio do YouTube sem depender só de um backend. */
 export async function downloadYouTubeAudioProxy (
   url: string,
   outputPath: string
 ): Promise<void> {
-  const videoId = extractYouTubeVideoId(url);
+  const videoId = extractYouTubeVideoId(url)
   if (!videoId) {
-    throw new Error('Não foi possível extrair o ID do vídeo.');
+    throw new Error('Não foi possível extrair o ID do vídeo.')
   }
 
-  const steps: Array<{ name: string; run: () => Promise<void> }> = [
-    { name: 'cobalt', run: () => tryCobaltDownload(url, outputPath) },
-    { name: 'piped', run: () => tryPipedRace(videoId, outputPath) },
-    { name: 'invidious', run: () => tryInvidiousDownload(videoId, outputPath) }
-  ];
+  const errors: string[] = []
 
-  let lastError: Error | null = null;
-
-  for (const step of steps) {
-    try {
-      await step.run();
-      return;
-    } catch (error: unknown) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      console.warn(`[MEDIA] ${step.name} falhou:`, lastError.message);
+  // 1) Cobalt local + 2) Piped em paralelo — quem responder primeiro ganha
+  try {
+    await promiseAny([
+      tryCobaltDownload(url, outputPath),
+      tryPipedRace(videoId, outputPath)
+    ])
+    return
+  } catch (aggregateError: unknown) {
+    if (aggregateError && typeof aggregateError === 'object' && 'errors' in aggregateError) {
+      const list = (aggregateError as { errors: unknown[] }).errors
+      for (const item of list) {
+        errors.push(item instanceof Error ? item.message : String(item))
+      }
+    } else {
+      errors.push(
+        aggregateError instanceof Error ? aggregateError.message : String(aggregateError)
+      )
     }
+    console.warn('[MEDIA] Cobalt/Piped paralelo falhou:', errors.join(' | '))
   }
 
-  throw lastError ?? new Error('Falha ao baixar áudio via proxies.');
+  // 3) Invidious
+  try {
+    await tryInvidiousDownload(videoId, outputPath)
+    return
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    errors.push(`invidious: ${message}`)
+    console.warn('[MEDIA] invidious falhou:', message)
+  }
+
+  const last = errors[errors.length - 1] ?? ''
+  if (isYoutubeBlockError(last)) {
+    throw new Error('error.api.youtube.login')
+  }
+
+  throw new Error(errors.join(' | ') || 'Falha ao baixar áudio via proxies.')
 }

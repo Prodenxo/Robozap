@@ -477,12 +477,14 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
       } catch (error: unknown) {
         console.error('Music Error:', error);
         const message = error instanceof Error ? error.message : String(error);
-        if (message.includes('youtube.login')) {
+        if (message.includes('youtube.login') || message.includes('error.api.youtube.login')) {
           await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaErrorYoutubeLogin);
         } else if (message.includes('no_session_tokens')) {
           await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaErrorNoSession);
-        } else if (message.includes('youtube.api_error')) {
+        } else if (message.includes('youtube.api_error') || message.includes('error.api.youtube.api_error')) {
           await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaErrorYoutubeApi);
+        } else if (message.includes('Timeout')) {
+          await whatsapp.sendMessage(msg.remoteJid, '⏱️ *Demorou demais.* Tenta outra música ou um link direto do YouTube.');
         } else {
           await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaErrorGeneric);
         }

@@ -5,7 +5,7 @@ import { handleWebhook } from './webhooks/evolution';
 
 dotenv.config();
 
-const MUSIC_BUILD = '2026-05-cobalt';
+const MUSIC_BUILD = '2026-06-tocar-nocookies';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -39,22 +39,31 @@ async function logMusicBackendStatus (): Promise<void> {
 
   const all = [...new Set(cobaltCandidates)];
 
+  let cobaltOnline = false
+
   for (const cobaltUrl of all) {
     try {
       const { data } = await axios.get(cobaltUrl, { timeout: 5000 });
       const version = data?.cobalt?.version ?? 'ok';
       console.log(`[ROBOZAP] Cobalt online em ${cobaltUrl} (versão ${version})`);
-      return;
+      cobaltOnline = true
+      break
     } catch {
       // tenta próximo
     }
   }
 
-  console.error(
-    '[ROBOZAP] Cobalt OFFLINE — suba o container ghcr.io/imputnet/cobalt na porta 9000',
-    '\n→ Docker Compose: docker compose up -d (robozap + cobalt juntos)',
-    '\n→ Painel (2 apps): COBALT_API_URL=http://NOME-INTERNO-DO-COBALT:9000',
-    '\n→ Mesmo servidor: COBALT_API_URL=http://127.0.0.1:9000'
+  if (!cobaltOnline) {
+    console.error(
+      '[ROBOZAP] Cobalt OFFLINE — suba o container ghcr.io/imputnet/cobalt na porta 9000',
+      '\n→ Docker Compose: docker compose up -d (robozap + cobalt juntos)',
+      '\n→ Painel (2 apps): COBALT_API_URL=http://NOME-INTERNO-DO-COBALT:9000',
+      '\n→ Mesmo servidor: COBALT_API_URL=http://127.0.0.1:9000'
+    );
+  }
+
+  console.log(
+    '[ROBOZAP] .tocar: Cobalt → Piped → Invidious → yt-dlp (sem cookies por padrão)'
   );
 }
 

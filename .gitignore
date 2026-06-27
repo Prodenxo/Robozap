@@ -5,6 +5,7 @@ temp_*
 *.log
 cookies.txt
 cookies.json
+cookies_ytdlp.txt
 .DS_Store
 
 # Prisma

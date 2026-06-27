@@ -7,6 +7,7 @@ services:
       - .env
     environment:
       COBALT_API_URL: http://cobalt:9000/
+      YOUTUBE_USE_COOKIES: "false"
     depends_on:
       - cobalt
     restart: unless-stopped
@@ -26,27 +27,25 @@ services:
       API_PORT: "9000"
       RATELIMIT_WINDOW: "60"
       RATELIMIT_MAX: "30"
-      # Cookies YouTube (copie cookies.json para a pasta do projeto)
-      COOKIE_PATH: /cookies.json
-      # Renovação automática usando o yt-session (opcional, configurado via .env)
-      YOUTUBE_SESSION_SERVER: "${YOUTUBE_SESSION_SERVER:-}"
-      YOUTUBE_SESSION_INNERTUBE_CLIENT: "${YOUTUBE_SESSION_INNERTUBE_CLIENT:-WEB_EMBEDDED}"
-      # Proxies para contornar bloqueio do YouTube
+      # Cookies opcionais — só monte cookies.json se quiser reforço (YOUTUBE_USE_COOKIES=true no robozap)
+      # COOKIE_PATH: /cookies.json
+      YOUTUBE_SESSION_SERVER: ""
       HTTP_PROXY: "${HTTP_PROXY:-}"
       HTTPS_PROXY: "${HTTPS_PROXY:-}"
       http_proxy: "${HTTP_PROXY:-}"
       https_proxy: "${HTTPS_PROXY:-}"
-    volumes:
-      - ./cookies.json:/cookies.json:ro
-    depends_on:
-      - yt-session
+    # volumes:
+    #   - ./cookies.json:/cookies.json:ro
     networks:
       - robozap-net
 
+  # Opcional — só se souber configurar; senão deixe parado
   yt-session:
     image: ghcr.io/imputnet/yt-session-generator:webserver
     init: true
     restart: unless-stopped
+    profiles:
+      - yt-session
     networks:
       - robozap-net
 
