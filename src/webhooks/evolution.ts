@@ -2,6 +2,8 @@ import { processMessage } from '../services/commandRouter';
 import { WhatsAppService } from '../services/whatsapp';
 import { prisma } from '../services/database';
 import { extractReplyContextFromPayload } from '../utils/messageContent';
+import { LidMapService } from '../services/lidMap';
+import { formatBrazilDisplayPhone } from '../services/activity';
 
 const whatsapp = new WhatsAppService();
 
@@ -15,6 +17,39 @@ const findField = (obj: any, fieldName: string): any => {
   }
   return null;
 };
+
+function registerParticipantPhoneFromMessage (message: any, participant: string): void {
+  const key = message?.key || {}
+  const lid = participant?.includes('@lid')
+    ? participant
+    : (key.participant?.includes('@lid') ? key.participant : findField(message, 'participant'))
+
+  const phoneCandidates = [
+    key.participantAlt,
+    key.participantPn,
+    key.senderPn,
+    message.participantAlt,
+    message.participantPn,
+    message.senderPn,
+    findField(message, 'participantAlt'),
+    findField(message, 'participantPn'),
+    findField(message, 'senderPn')
+  ].filter(Boolean).map(String)
+
+  for (const candidate of phoneCandidates) {
+    const jid = candidate.includes('@')
+      ? candidate
+      : `${candidate.replace(/\D/g, '')}@s.whatsapp.net`
+
+    if (!formatBrazilDisplayPhone(jid)) continue
+
+    if (typeof lid === 'string' && lid.includes('@lid')) {
+      LidMapService.set(lid, jid)
+      console.log(`[LID MAP] Mensagem: ${lid} -> ${jid}`)
+      return
+    }
+  }
+}
 
 export const handleWebhook = async (data: any) => {
   const event = data.event?.toLowerCase();
@@ -76,6 +111,8 @@ async function handleMessageUpsert(message: any) {
     findField(message, 'participant') ||
     remoteJid;
   const senderName = message.pushName || message.key?.pushName || 'Usuário';
+
+  registerParticipantPhoneFromMessage(message, participant)
 
   const replyContext = extractReplyContextFromPayload(message)
 

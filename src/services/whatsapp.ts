@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { prisma } from './database';
 import { LidMapService } from './lidMap';
-import { normalizePhoneKey } from './activity';
+import { normalizePhoneKey, formatBrazilDisplayPhone, collectJidAliases } from './activity';
 
 dotenv.config();
 
@@ -586,7 +586,10 @@ export class WhatsAppService {
           let jid = p.id || p.jid;
           if (jid) {
               // 1. Procurar JID real em todos os campos possíveis
-              const fieldsToCheck = [p.jid, p.id, p.realJid, p.phoneNumber, p.phone_number, p.number, p.phone];
+              const fieldsToCheck = [
+                p.jid, p.id, p.realJid, p.phoneNumber, p.phone_number,
+                p.number, p.phone, p.participantPn, p.participantAlt, p.pn
+              ];
               const realJidCandidate = fieldsToCheck.find(f => typeof f === 'string' && f.includes('@s.whatsapp.net'));
               
               if (realJidCandidate) {
@@ -606,11 +609,16 @@ export class WhatsAppService {
                   });
 
                   if (rawNum) {
-                      const num = typeof rawNum === 'string' ? rawNum.split('@')[0] : String(rawNum);
-                      if (/^\d{8,15}$/.test(num)) {
-                          jid = `${num}@s.whatsapp.net`;
+                      const num = typeof rawNum === 'string' ? rawNum.split('@')[0] : String(rawNum)
+                      const candidateJid = num.includes('@')
+                        ? num
+                        : `${num}@s.whatsapp.net`
+                      if (formatBrazilDisplayPhone(candidateJid)) {
+                          jid = candidateJid.includes('@') ? candidateJid : `${candidateJid.split('@')[0]}@s.whatsapp.net`
+                          const lidCandidate = fieldsToCheck.find(f => typeof f === 'string' && f.includes('@lid'))
+                          if (lidCandidate) LidMapService.set(lidCandidate, jid)
                       } else if (jid.includes('@lid')) {
-                          jid = await this.resolveJid(jid);
+                          jid = await this.resolveJid(jid)
                       }
                   } else if (jid.includes('@lid')) {
                       jid = await this.resolveJid(jid);
@@ -675,28 +683,46 @@ export class WhatsAppService {
   async isParticipantAdmin (groupJid: string, userJid: string): Promise<boolean> {
     try {
       const participants = await this.syncGroupParticipants(groupJid)
-      const resolved = await this.resolveJid(userJid)
+      const resolved = await this.resolveParticipantJid(userJid, groupJid)
+      const lidMap = LidMapService.getFullMap()
+      const needles = new Set<string>()
+
+      for (const alias of [
+        ...collectJidAliases(resolved, lidMap),
+        ...collectJidAliases(userJid, lidMap)
+      ]) {
+        needles.add(alias)
+        needles.add(alias.split('@')[0])
+      }
+
       const targetPhone = normalizePhoneKey(resolved.split('@')[0])
 
       for (const participant of participants) {
         const fields = [
           participant.id,
           participant.jid,
+          participant.lid,
           participant.realJid,
           participant.phoneNumber,
           participant.phone_number,
           participant.number,
-          participant.phone
+          participant.phone,
+          participant.participantPn,
+          participant.participantAlt,
+          participant.pn
         ].filter(Boolean)
 
         const matches = fields.some((field) => {
           const value = String(field)
+          if (needles.has(value)) return true
+
+          const bare = value.split('@')[0]
+          if (needles.has(bare)) return true
+
           if (value.includes('@')) {
-            return (
-              value === resolved ||
-              normalizePhoneKey(value.split('@')[0]) === targetPhone
-            )
+            return normalizePhoneKey(bare) === targetPhone
           }
+
           return normalizePhoneKey(value) === targetPhone
         })
 
@@ -723,6 +749,84 @@ export class WhatsAppService {
     }
 
     return false
+  }
+
+  async ensureGroupParticipant (
+    groupJid: string,
+    userJid: string,
+    pushName?: string
+  ): Promise<{ id: string, userJid: string, groupId: string }> {
+    const group = await (prisma as any).group.findUnique({ where: { jid: groupJid } })
+    if (!group) throw new Error(`Grupo não encontrado: ${groupJid}`)
+
+    const resolvedJid = await this.resolveParticipantJid(userJid, groupJid)
+    const lidMap = LidMapService.getFullMap()
+    const aliasSet = new Set([
+      ...collectJidAliases(resolvedJid, lidMap),
+      ...collectJidAliases(userJid, lidMap)
+    ])
+
+    await (prisma as any).user.upsert({
+      where: { jid: resolvedJid },
+      update: { pushName: pushName || undefined },
+      create: { jid: resolvedJid, pushName: pushName || 'Usuário' }
+    })
+
+    const matches = await (prisma as any).groupParticipant.findMany({
+      where: { groupId: group.id, userJid: { in: Array.from(aliasSet) } }
+    })
+
+    let canonical = matches.find((p: { userJid: string }) =>
+      p.userJid.includes('@s.whatsapp.net')
+    ) || matches[0]
+
+    if (!canonical) {
+      canonical = await (prisma as any).groupParticipant.create({
+        data: {
+          groupId: group.id,
+          userJid: resolvedJid,
+          roleCode: 5
+        }
+      })
+      return canonical
+    }
+
+    const duplicates = matches.filter((p: { id: string }) => p.id !== canonical.id)
+    for (const dup of duplicates) {
+      const parts = await (prisma as any).roleParticipation.findMany({
+        where: { participantId: dup.id }
+      })
+
+      for (const part of parts) {
+        try {
+          await (prisma as any).roleParticipation.upsert({
+            where: {
+              roleId_participantId: {
+                roleId: part.roleId,
+                participantId: canonical.id
+              }
+            },
+            update: { status: part.status },
+            create: {
+              roleId: part.roleId,
+              participantId: canonical.id,
+              status: part.status
+            }
+          })
+          await (prisma as any).roleParticipation.delete({ where: { id: part.id } })
+        } catch {
+          // conflito de merge — ignora
+        }
+      }
+
+      try {
+        await (prisma as any).groupParticipant.delete({ where: { id: dup.id } })
+      } catch {
+        // participante duplicado com vínculos — mantém canonical
+      }
+    }
+
+    return canonical
   }
 
   async resolveName(jid: string, groupJid?: string) {
@@ -794,9 +898,11 @@ export class WhatsAppService {
               const num = typeof rawNum === 'string' ? rawNum.split('@')[0] : String(rawNum);
               if (/^\d{8,15}$/.test(num)) {
                   const formattedJid = `${num}@s.whatsapp.net`;
-                  console.log(`[DEBUG] LID Resolvido com sucesso (rawNum): ${jid} -> ${formattedJid}`);
-                  LidMapService.set(jid, formattedJid);
-                  return formattedJid;
+                  if (formatBrazilDisplayPhone(formattedJid)) {
+                    console.log(`[DEBUG] LID Resolvido com sucesso (rawNum): ${jid} -> ${formattedJid}`);
+                    LidMapService.set(jid, formattedJid);
+                    return formattedJid;
+                  }
               }
           }
       }
@@ -805,6 +911,77 @@ export class WhatsAppService {
     }
 
     return jid;
+  }
+
+  async resolveParticipantJid (userJid: string, groupJid: string): Promise<string> {
+    let resolved = await this.resolveJid(userJid)
+
+    if (formatBrazilDisplayPhone(resolved)) {
+      return resolved.includes('@') ? resolved : `${resolved}@s.whatsapp.net`
+    }
+
+    const participants = await this.syncGroupParticipants(groupJid)
+    const needles = new Set(
+      [userJid, resolved, userJid.split('@')[0], resolved.split('@')[0]].filter(Boolean)
+    )
+
+    for (const participant of participants) {
+      const fields = [
+        participant.id,
+        participant.jid,
+        participant.lid,
+        participant.phoneNumber,
+        participant.phone_number,
+        participant.number,
+        participant.phone,
+        participant.participantPn,
+        participant.participantAlt,
+        participant.pn
+      ].filter(Boolean).map(String)
+
+      const matches = fields.some((field) => needles.has(field))
+      if (!matches) continue
+
+      const realJid = fields.find(
+        (field) => field.includes('@s.whatsapp.net') && formatBrazilDisplayPhone(field)
+      )
+
+      if (realJid) {
+        const lid = fields.find((field) => field.includes('@lid'))
+        if (lid) LidMapService.set(lid, realJid)
+        if (userJid.includes('@lid')) LidMapService.set(userJid, realJid)
+        return realJid
+      }
+
+      const rawNum = fields.find((field) => {
+        if (!field || field.includes('@')) return false
+        return formatBrazilDisplayPhone(field)
+      })
+
+      if (rawNum) {
+        let digits = String(rawNum).replace(/\D/g, '')
+        if ((digits.length === 10 || digits.length === 11) && !digits.startsWith('55')) {
+          digits = `55${digits}`
+        }
+        const formattedJid = `${digits}@s.whatsapp.net`
+        if (formatBrazilDisplayPhone(formattedJid)) {
+          const lid = fields.find((field) => field.includes('@lid'))
+          if (lid) LidMapService.set(lid, formattedJid)
+          if (userJid.includes('@lid')) LidMapService.set(userJid, formattedJid)
+          return formattedJid
+        }
+      }
+    }
+
+    return resolved
+  }
+
+  async resolveDisplayPhone (userJid: string, groupJid?: string): Promise<string | null> {
+    const resolved = groupJid
+      ? await this.resolveParticipantJid(userJid, groupJid)
+      : await this.resolveJid(userJid)
+
+    return formatBrazilDisplayPhone(resolved)
   }
 
   async getGroupMetadata(groupJid: string): Promise<{ subject?: string } | null> {

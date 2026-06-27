@@ -128,8 +128,7 @@ export const handleGeneralCommands = async (command: string, args: string[], msg
 📅 *ROLÊS & RESENHAS*
 🍻 *.role.criar* / *.resenha.criar* [título] | [texto] — Cria rolê (texto longo com enter funciona).
 🎉 *.roles* / *.resenha* [código] — Lista rolês.
-✅ *.vou* / *.role.vou* [código] — Confirma presença.
-❌ *.nvou* / *.role.nvou* / *.vounao* — Cancela presença.
+✅ *.vou* [código] — Confirma presença.
 🏁 *.role.encerrar* — Encerra inscrições.
 🚫 *.role.cancelar* / *.resenha.cancelar* — Cancela rolê.
 📻 *.radio* / *.playlist* [link] — Playlist do grupo.

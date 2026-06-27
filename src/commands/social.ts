@@ -2,7 +2,7 @@ import { WhatsAppService } from '../services/whatsapp';
 import { prisma } from '../services/database';
 import { botTexts } from '../config/texts';
 import { LidMapService } from '../services/lidMap';
-import { getParticipantDedupeKey, normalizePhoneKey } from '../services/activity';
+import { getParticipantDedupeKey, formatBrazilDisplayPhone, normalizePhoneKey } from '../services/activity';
 
 const whatsapp = new WhatsAppService();
 
@@ -25,11 +25,10 @@ function isPhoneLikeName (name: string, phoneRaw: string): boolean {
 
 function formatRoleParticipantLabel (
   participant: { userJid: string, user?: { pushName?: string | null } },
-  resolvedJid: string,
-  resolvedName: string
+  resolvedName: string,
+  displayPhone: string | null
 ): string {
-  const phoneRaw = resolvedJid.split('@')[0]
-  const displayPhone = normalizePhoneKey(phoneRaw)
+  const phoneRaw = participant.userJid.split('@')[0]
   const dbName = participant.user?.pushName?.trim()
 
   let name = resolvedName.trim()
@@ -40,11 +39,9 @@ function formatRoleParticipantLabel (
     name = dbName || 'Sem nome'
   }
 
-  if (resolvedJid.endsWith('@lid') && !displayPhone) {
-    return name
-  }
+  if (!displayPhone) return name
 
-  return displayPhone ? `(${displayPhone}) ${name}` : name
+  return `(${displayPhone}) ${name}`
 }
 
 async function buildRoleParticipantLabels (
@@ -60,9 +57,10 @@ async function buildRoleParticipantLabels (
     if (seen.has(dedupeKey)) continue
     seen.add(dedupeKey)
 
-    const resolvedJid = await whatsapp.resolveJid(entry.participant.userJid)
+    const resolvedJid = await whatsapp.resolveParticipantJid(entry.participant.userJid, groupJid)
+    const displayPhone = formatBrazilDisplayPhone(resolvedJid)
     const resolvedName = await whatsapp.resolveName(resolvedJid, groupJid)
-    labels.push(formatRoleParticipantLabel(entry.participant, resolvedJid, resolvedName))
+    labels.push(formatRoleParticipantLabel(entry.participant, resolvedName, displayPhone))
   }
 
   return labels
@@ -99,16 +97,18 @@ function buildRoleCreatedMessage (role: { code: string, title: string, descripti
   }
 
   text +=
-    `\n\nPara participar, responda com:\n` +
-    `👉 *.vou ${role.code}* - Confirmar presença\n` +
-    `👉 *.nvou ${role.code}* - Recusar / Não vou\n\n` +
-    `Para ver a lista atualizada, digite *.roles ${role.code}*.`
+    `\n\nPara confirmar presença, responda:\n` +
+    `👉 *.vou*\n\n` +
+    `Para ver quem vai, digite *.roles* ou *.roles ${role.code}*.`
 
   return text
 }
 
 export const handleSocialCommands = async (command: string, args: string[], msg: any) => {
-  const userJid = await whatsapp.resolveJid(LidMapService.get(msg.participant) || msg.participant);
+  const userJid = await whatsapp.resolveParticipantJid(
+    LidMapService.get(msg.participant) || msg.participant,
+    msg.remoteJid
+  );
 
   switch (command) {
     case 'radio':
@@ -279,24 +279,12 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         ].includes(command);
 
         const status = isYes ? 'vou' : 'nvou';
-        
-        // Garante que o usuário existe no banco com o pushName atualizado
-        await (prisma as any).user.upsert({
-          where: { jid: userJid },
-          update: { pushName: msg.pushName || 'Usuário' },
-          create: { jid: userJid, pushName: msg.pushName || 'Usuário' }
-        });
 
-        // Garante que o participante está registrado no grupo
-        const participant = await (prisma as any).groupParticipant.upsert({
-          where: { groupId_userJid: { groupId: group.id, userJid } },
-          update: {},
-          create: {
-            group: { connect: { id: group.id } },
-            user: { connect: { jid: userJid } },
-            roleCode: 5
-          }
-        });
+        const participant = await whatsapp.ensureGroupParticipant(
+          msg.remoteJid,
+          LidMapService.get(msg.participant) || msg.participant,
+          msg.pushName || 'Usuário'
+        );
 
         await (prisma as any).roleParticipation.upsert({
           where: { roleId_participantId: { roleId: targetRole.id, participantId: participant.id } },
@@ -316,9 +304,8 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
           if (seenResolved.has(dedupeKey)) {
             const existing = seenResolved.get(dedupeKey);
             const toDelete = part.participantId === participant.id ? existing : part;
-            const toKeep = part.participantId === participant.id ? part : existing;
             await (prisma as any).roleParticipation.delete({ where: { id: toDelete.id } });
-            seenResolved.set(dedupeKey, toKeep);
+            seenResolved.set(dedupeKey, part.participantId === participant.id ? part : existing);
           } else {
             seenResolved.set(dedupeKey, part);
           }
@@ -345,12 +332,18 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         
         let replyText = `${icon} *${msg.pushName}* ${actionText} no rolê *"${targetRole.title}"*!\n\n`;
         replyText += `✅ *Vão (${vaoNames.length}):* ${vaoNames.join(', ') || 'Ninguém'}\n`;
-        replyText += `❌ *Não vão (${nvaoNames.length}):* ${nvaoNames.join(', ') || 'Todo mundo'}\n\n`;
-        replyText += `Para atualizar sua presença, digite *.vou ${targetRole.code}* ou *.nvou ${targetRole.code}*!`;
+        if (nvaoNames.length > 0) {
+          replyText += `❌ *Não vão (${nvaoNames.length}):* ${nvaoNames.join(', ')}\n`;
+        }
+        replyText += `\nPara confirmar presença, digite *.vou*!`;
 
         await whatsapp.sendMessage(msg.remoteJid, replyText);
-      } catch (error) {
-        console.error('Error in role participation:', error);
+      } catch (error: any) {
+        console.error('Error in role participation:', error?.code, error?.meta || error?.message || error)
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '❌ *Não consegui registrar sua presença.* Tenta de novo em instantes.'
+        )
       }
       return true;
 
@@ -410,7 +403,10 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
           listText += `📌 *[Código: ${role.code}] - ${role.title}*\n`;
           if (role.description) listText += `📝 ${role.description}\n`;
           listText += `✅ *Vão (${vaoNames.length}):* ${vaoNames.join(', ') || 'Ninguém'}\n`;
-          listText += `❌ *Não vão (${nvaoNames.length}):* ${nvaoNames.join(', ') || 'Todo mundo'}\n\n`;
+          if (nvaoNames.length > 0) {
+            listText += `❌ *Não vão (${nvaoNames.length}):* ${nvaoNames.join(', ')}\n`;
+          }
+          listText += '\n';
         }
 
         if (!targetCode && currentRoles.length > 0) {

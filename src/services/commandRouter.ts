@@ -35,8 +35,12 @@ interface MessageData {
 }
 
 export const processMessage = async (msg: MessageData) => {
-  // Resolve LID (ID gigante) para JID real
-  msg.participant = await whatsapp.resolveJid(msg.participant);
+  // Resolve LID (ID gigante) para JID real — em grupo usa lista de participantes
+  if (msg.remoteJid.endsWith('@g.us')) {
+    msg.participant = await whatsapp.resolveParticipantJid(msg.participant, msg.remoteJid)
+  } else {
+    msg.participant = await whatsapp.resolveJid(msg.participant)
+  }
   if (msg.quotedParticipant) {
     msg.quotedParticipant = await whatsapp.resolveJid(msg.quotedParticipant);
   }
@@ -84,8 +88,10 @@ export const processMessage = async (msg: MessageData) => {
     if (group) {
       let currentSettings = group.settings ? (typeof group.settings === 'string' ? JSON.parse(group.settings) : group.settings) : {};
       if (currentSettings && currentSettings.adminMode === true) {
+        await whatsapp.syncGroupParticipants(msg.remoteJid)
+
         const isEssential = ['menu', 'vencimento', 'ajuda', 'filhote.ajuda'].includes(command);
-        const allowedForAll = ['role.vou','vou','role.nvou','nvou','vounao','role.sair','role.encerrar','role.cancelar','role.criar','resenha.criar','role.elencerrar','roles','role','role.participar'];
+        const allowedForAll = ['role.vou','vou','role.nvou','nvou','vounao','role.sair','role.encerrar','role.cancelar','role.criar','resenha.criar','role.elencerrar','roles','role','role.participar','resenha'];
         if (!isEssential && !allowedForAll.includes(command)) {
           let hasPermission = await PermissionGuard.canExecute(
             msg.participant,
