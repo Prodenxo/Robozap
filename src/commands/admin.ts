@@ -171,13 +171,23 @@ function isProtectedParticipant (
 
 function getQuotedBodyText (quoted: any): string {
   if (!quoted) return ''
-  return (
+
+  if (quoted.ephemeralMessage?.message) {
+    return getQuotedBodyText(quoted.ephemeralMessage.message)
+  }
+
+  if (quoted.viewOnceMessage?.message) {
+    return getQuotedBodyText(quoted.viewOnceMessage.message)
+  }
+
+  const text =
     quoted.conversation ||
     quoted.extendedTextMessage?.text ||
     quoted.imageMessage?.caption ||
     quoted.videoMessage?.caption ||
     ''
-  ).trim()
+
+  return text.replace(/^\s+|\s+$/g, '')
 }
 
 function findMedia (m: any): any {
@@ -198,24 +208,34 @@ function unwrapMessageContent (message: any): any {
 }
 
 function stripMarcarCommand (text: string): string {
-  return text.replace(/^\.(?:marcar|todos)\b\s*/i, '').trim()
+  return text.replace(/^\.(?:marcar|todos)(?:[\s\n]|$)+/i, '')
+}
+
+function extractTextAfterCommand (fullText: string): string {
+  if (!fullText) return ''
+
+  const match = fullText.match(/^\.(?:marcar|todos)(?:[\s\n]|$)([\s\S]*)$/i)
+  if (!match) return ''
+
+  return match[1].replace(/^\n/, '')
 }
 
 function getOwnMediaCaption (rawMessage: any): string {
   const content = unwrapMessageContent(rawMessage?.message || rawMessage)
   if (!content) return ''
 
-  return (
+  const caption =
     content.imageMessage?.caption ||
     content.videoMessage?.caption ||
     content.documentMessage?.caption ||
     ''
-  ).trim()
+
+  return caption.replace(/^\s+|\s+$/g, '')
 }
 
-function buildMarcarBody (msg: any, args: string[]): string {
-  const customText = args.join(' ').trim()
-  if (customText) return customText
+function buildMarcarBody (msg: any): string {
+  const fromCommand = extractTextAfterCommand(msg.text || '')
+  if (fromCommand) return fromCommand
 
   const ownCaption = stripMarcarCommand(getOwnMediaCaption(msg.raw))
   if (ownCaption) return ownCaption
@@ -957,7 +977,7 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         return true
       }
 
-      const body = buildMarcarBody(msg, args)
+      const body = buildMarcarBody(msg)
       const msgContent = unwrapMessageContent(msg.raw?.message) || {}
       const quotedContent = msg.quoted || {}
       const quotedMedia = findMedia(quotedContent)
