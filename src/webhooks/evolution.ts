@@ -52,13 +52,20 @@ export const handleWebhook = async (data: any) => {
   }
 };
 
+function unwrapIncomingMessage (message: any): any {
+  if (!message) return null
+  if (message.ephemeralMessage?.message) return unwrapIncomingMessage(message.ephemeralMessage.message)
+  if (message.viewOnceMessage?.message) return unwrapIncomingMessage(message.viewOnceMessage.message)
+  return message
+}
+
 function extractReplyContext (message: any): {
   quotedId?: string
   quoted?: any
   quotedParticipant?: string
   mentionedJid: string[]
 } {
-  const msgContent = message?.message || {}
+  const msgContent = unwrapIncomingMessage(message?.message || {}) || {}
 
   const context =
     msgContent.extendedTextMessage?.contextInfo ||

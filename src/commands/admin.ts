@@ -169,22 +169,26 @@ function isProtectedParticipant (
   return candidates.some(candidate => protectedKeys.has(candidate))
 }
 
+function normalizeQuotedContent (quoted: any): any {
+  if (!quoted) return null
+  if (quoted.message && typeof quoted.message === 'object') {
+    return unwrapMessageContent(quoted.message)
+  }
+  return unwrapMessageContent(quoted)
+}
+
 function getQuotedBodyText (quoted: any): string {
   if (!quoted) return ''
 
-  if (quoted.ephemeralMessage?.message) {
-    return getQuotedBodyText(quoted.ephemeralMessage.message)
-  }
-
-  if (quoted.viewOnceMessage?.message) {
-    return getQuotedBodyText(quoted.viewOnceMessage.message)
-  }
+  const content = normalizeQuotedContent(quoted)
+  if (!content) return ''
 
   const text =
-    quoted.conversation ||
-    quoted.extendedTextMessage?.text ||
-    quoted.imageMessage?.caption ||
-    quoted.videoMessage?.caption ||
+    content.conversation ||
+    content.extendedTextMessage?.text ||
+    content.imageMessage?.caption ||
+    content.videoMessage?.caption ||
+    content.documentMessage?.caption ||
     ''
 
   return text.replace(/^\s+|\s+$/g, '')
@@ -240,14 +244,14 @@ function buildMarcarBody (msg: any): string {
   const fromCommand = extractTextAfterCommand(msg.text || '')
   if (fromCommand.trim()) return fromCommand
 
-  const ownCaption = stripMarcarCommand(getOwnMediaCaption(msg.raw))
-  if (ownCaption.trim()) return ownCaption
-
-  if (msg.quotedId) {
+  if (msg.quotedId || msg.quoted) {
     const quotedText = getQuotedBodyText(msg.quoted)
     if (quotedText) return quotedText
-    if (findMedia(msg.quoted)) return ''
+    if (findMedia(normalizeQuotedContent(msg.quoted))) return ''
   }
+
+  const ownCaption = stripMarcarCommand(getOwnMediaCaption(msg.raw))
+  if (ownCaption.trim()) return ownCaption
 
   return MARCAR_DEFAULT_TEXT
 }
@@ -271,13 +275,15 @@ function findQuotedMedia (quoted: any): any {
 }
 
 function buildQuotedMessageKey (msg: any): Record<string, unknown> | null {
-  if (!msg.quotedId) return null
+  const quotedKey = msg.quoted?.key
+  const id = msg.quotedId || quotedKey?.id
+  if (!id) return null
 
   return {
-    remoteJid: msg.remoteJid,
-    id: msg.quotedId,
-    fromMe: msg.quoted?.key?.fromMe ?? false,
-    participant: msg.quotedParticipant || msg.quoted?.key?.participant
+    remoteJid: quotedKey?.remoteJid || msg.remoteJid,
+    id,
+    fromMe: quotedKey?.fromMe ?? false,
+    participant: msg.quotedParticipant || quotedKey?.participant
   }
 }
 
@@ -985,24 +991,40 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       const body = buildMarcarBody(msg)
       const textToSend = body || MARCAR_DEFAULT_TEXT
       const msgContent = unwrapMessageContent(msg.raw?.message) || {}
-      const quotedContent = msg.quoted || {}
-      const quotedMedia = findMedia(quotedContent)
+      const quotedNormalized = normalizeQuotedContent(msg.quoted)
+      const quotedMedia = quotedNormalized ? findMedia(quotedNormalized) : null
       const ownMedia = findMedia(msgContent)
+      const isReply = Boolean(msg.quotedId || msg.quoted)
+      const quotedHasText = Boolean(getQuotedBodyText(msg.quoted))
       const targetMedia = quotedMedia || ownMedia
-      const fromQuoted = Boolean(quotedMedia)
+      const fromQuoted = Boolean(quotedMedia) || (isReply && !ownMedia)
+      const shouldTryQuotedMedia =
+        Boolean(targetMedia) || (isReply && msg.quotedId && !quotedHasText)
 
-      if (targetMedia) {
+      if (shouldTryQuotedMedia) {
         let base64: string | null = null
-        const mime = targetMedia.mimetype || ''
         let type: 'image' | 'video' | 'audio' = 'image'
-        if (mime.startsWith('video/')) type = 'video'
-        if (mime.startsWith('audio/')) type = 'audio'
+
+        if (targetMedia) {
+          const mime = targetMedia.mimetype || ''
+          if (mime.startsWith('video/')) type = 'video'
+          if (mime.startsWith('audio/')) type = 'audio'
+        }
 
         try {
-          base64 = await decryptMediaLocally(targetMedia)
+          if (targetMedia) {
+            base64 = await decryptMediaLocally(targetMedia)
+          }
 
-          if (!base64) {
-            const messageKey = buildMediaMessageKey(msg, fromQuoted)
+          if (!base64 && fromQuoted) {
+            const messageKey = buildQuotedMessageKey(msg)
+            if (messageKey) {
+              base64 = await whatsapp.getBase64FromMessage(messageKey)
+            }
+          }
+
+          if (!base64 && !fromQuoted) {
+            const messageKey = buildMediaMessageKey(msg, false)
             if (messageKey) {
               base64 = await whatsapp.getBase64FromMessage(messageKey)
             }
