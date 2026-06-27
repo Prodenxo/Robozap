@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { prisma } from './database';
 import { LidMapService } from './lidMap';
+import { normalizePhoneKey } from './activity';
 
 dotenv.config();
 
@@ -541,7 +542,7 @@ export class WhatsAppService {
           headers: this.headers
         });
       }
-      
+
       let participants = [];
       if (response && response.data) {
           if (Array.isArray(response.data)) {
@@ -669,6 +670,59 @@ export class WhatsAppService {
       console.error('[SYNC ERROR]:', error);
       return [];
     }
+  }
+
+  async isParticipantAdmin (groupJid: string, userJid: string): Promise<boolean> {
+    try {
+      const participants = await this.syncGroupParticipants(groupJid)
+      const resolved = await this.resolveJid(userJid)
+      const targetPhone = normalizePhoneKey(resolved.split('@')[0])
+
+      for (const participant of participants) {
+        const fields = [
+          participant.id,
+          participant.jid,
+          participant.realJid,
+          participant.phoneNumber,
+          participant.phone_number,
+          participant.number,
+          participant.phone
+        ].filter(Boolean)
+
+        const matches = fields.some((field) => {
+          const value = String(field)
+          if (value.includes('@')) {
+            return (
+              value === resolved ||
+              normalizePhoneKey(value.split('@')[0]) === targetPhone
+            )
+          }
+          return normalizePhoneKey(value) === targetPhone
+        })
+
+        if (!matches) continue
+
+        const adminFlag =
+          participant.admin ??
+          participant.role ??
+          participant.roleCode
+
+        return (
+          adminFlag === 'superadmin' ||
+          adminFlag === 'admin' ||
+          adminFlag === true ||
+          participant.isSuperAdmin === true ||
+          participant.isAdmin === true ||
+          adminFlag === 1 ||
+          adminFlag === 2 ||
+          adminFlag === 3
+        )
+      }
+    } catch (error) {
+      console.warn('[WHATSAPP] isParticipantAdmin falhou:', error)
+    }
+
+    return false
   }
 
   async resolveName(jid: string, groupJid?: string) {

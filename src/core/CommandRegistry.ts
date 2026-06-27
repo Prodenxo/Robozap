@@ -172,3 +172,9 @@ export const COMMAND_MAP: Record<string, Function> = {
   'inativos': handleAdminCommands,
   'passivos': handleAdminCommands,
 };
+
+export const ADMIN_COMMANDS = new Set(
+  Object.entries(COMMAND_MAP)
+    .filter(([, handler]) => handler === handleAdminCommands)
+    .map(([command]) => command)
+);

@@ -1,4 +1,4 @@
-import { COMMAND_MAP } from '../core/CommandRegistry';
+import { COMMAND_MAP, ADMIN_COMMANDS } from '../core/CommandRegistry';
 import { SubscriptionGuard, PermissionGuard } from '../core/Guards';
 import { prisma } from './database';
 import { StatsService } from './stats';
@@ -70,8 +70,13 @@ export const processMessage = async (msg: MessageData) => {
 
   if (!command) return;
 
-  // 1.1. Guard do Modo Admin (Restringir bot apenas para administradores)
   const isGroup = msg.remoteJid.endsWith('@g.us');
+
+  if (isGroup && ADMIN_COMMANDS.has(command)) {
+    await whatsapp.syncGroupParticipants(msg.remoteJid);
+  }
+
+  // 1.1. Guard do Modo Admin (Restringir bot apenas para administradores)
   if (isGroup) {
     const group = await prisma.group.findUnique({
       where: { jid: msg.remoteJid }
@@ -82,12 +87,25 @@ export const processMessage = async (msg: MessageData) => {
         const isEssential = ['menu', 'vencimento', 'ajuda', 'filhote.ajuda'].includes(command);
         const allowedForAll = ['role.vou','vou','role.nvou','nvou','vounao','role.sair','role.encerrar','role.cancelar','role.criar','role.elencerrar','roles','role','role.participar'];
         if (!isEssential && !allowedForAll.includes(command)) {
-          // Sincroniza participantes para atualizar cargos e LIDs antes de checar as permissões
-          await whatsapp.syncGroupParticipants(msg.remoteJid);
-          const hasPermission = await PermissionGuard.canExecute(msg.participant, msg.remoteJid, PermissionGuard.ROLES.ADM);
+          let hasPermission = await PermissionGuard.canExecute(
+            msg.participant,
+            msg.remoteJid,
+            PermissionGuard.ROLES.ADM
+          );
+
           if (!hasPermission) {
-            console.log(`[ROUTER] Modo Admin ativo. Ignorando comando .${command} de não-admin: ${msg.participant}`);
-            await whatsapp.sendReaction(msg.remoteJid, msg.id, "❌", false);
+            hasPermission = await whatsapp.isParticipantAdmin(
+              msg.remoteJid,
+              msg.participant
+            );
+          }
+
+          if (!hasPermission) {
+            console.log(
+              `[ROUTER] Modo Admin ativo. Ignorando comando .${command} de não-admin: ${msg.participant}`
+            );
+            await whatsapp.sendReaction(msg.remoteJid, msg.id, '❌', false);
+            await whatsapp.sendMessage(msg.remoteJid, botTexts.admin.noPerm);
             return;
           }
         }

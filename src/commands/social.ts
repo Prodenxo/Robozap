@@ -2,11 +2,74 @@ import { WhatsAppService } from '../services/whatsapp';
 import { prisma } from '../services/database';
 import { botTexts } from '../config/texts';
 import { LidMapService } from '../services/lidMap';
+import { getParticipantDedupeKey, normalizePhoneKey } from '../services/activity';
 
 const whatsapp = new WhatsAppService();
 
+function isPhoneLikeName (name: string, phoneRaw: string): boolean {
+  if (!name) return false
+
+  const nameDigits = name.replace(/\D/g, '')
+  if (!nameDigits || nameDigits.length < 10) return false
+
+  const phoneDigits = phoneRaw.replace(/\D/g, '')
+  const normalized = normalizePhoneKey(phoneRaw)
+
+  return (
+    nameDigits === phoneDigits ||
+    nameDigits === normalized ||
+    phoneDigits.endsWith(nameDigits) ||
+    nameDigits.endsWith(normalized)
+  )
+}
+
+function formatRoleParticipantLabel (
+  participant: { userJid: string, user?: { pushName?: string | null } },
+  resolvedJid: string,
+  resolvedName: string
+): string {
+  const phoneRaw = resolvedJid.split('@')[0]
+  const displayPhone = normalizePhoneKey(phoneRaw)
+  const dbName = participant.user?.pushName?.trim()
+
+  let name = resolvedName.trim()
+
+  if (isPhoneLikeName(name, phoneRaw)) {
+    name = dbName && !isPhoneLikeName(dbName, phoneRaw) ? dbName : 'Sem nome'
+  } else if (!name || name === 'Usuário') {
+    name = dbName || 'Sem nome'
+  }
+
+  if (resolvedJid.endsWith('@lid') && !displayPhone) {
+    return name
+  }
+
+  return displayPhone ? `(${displayPhone}) ${name}` : name
+}
+
+async function buildRoleParticipantLabels (
+  participations: Array<{ participant: { userJid: string, user?: { pushName?: string | null } } }>,
+  groupJid: string
+): Promise<string[]> {
+  const lidMap = LidMapService.getFullMap()
+  const seen = new Set<string>()
+  const labels: string[] = []
+
+  for (const entry of participations) {
+    const dedupeKey = getParticipantDedupeKey(entry.participant.userJid, lidMap)
+    if (seen.has(dedupeKey)) continue
+    seen.add(dedupeKey)
+
+    const resolvedJid = await whatsapp.resolveJid(entry.participant.userJid)
+    const resolvedName = await whatsapp.resolveName(resolvedJid, groupJid)
+    labels.push(formatRoleParticipantLabel(entry.participant, resolvedJid, resolvedName))
+  }
+
+  return labels
+}
+
 export const handleSocialCommands = async (command: string, args: string[], msg: any) => {
-  const userJid = LidMapService.get(msg.participant) || msg.participant;
+  const userJid = await whatsapp.resolveJid(LidMapService.get(msg.participant) || msg.participant);
 
   switch (command) {
     case 'radio':
@@ -189,17 +252,17 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
           include: { participant: true }
         });
         const seenResolved = new Map<string, any>();
+        const lidMap = LidMapService.getFullMap();
         for (const part of allPartsForRole) {
-          const resolvedPartJid = LidMapService.get(part.participant.userJid) || part.participant.userJid;
-          if (seenResolved.has(resolvedPartJid)) {
-            // Duplicata encontrada — mantém o registro atual (participant.id) e deleta o outro
-            const existing = seenResolved.get(resolvedPartJid);
+          const dedupeKey = getParticipantDedupeKey(part.participant.userJid, lidMap);
+          if (seenResolved.has(dedupeKey)) {
+            const existing = seenResolved.get(dedupeKey);
             const toDelete = part.participantId === participant.id ? existing : part;
             const toKeep = part.participantId === participant.id ? part : existing;
             await (prisma as any).roleParticipation.delete({ where: { id: toDelete.id } });
-            seenResolved.set(resolvedPartJid, toKeep);
+            seenResolved.set(dedupeKey, toKeep);
           } else {
-            seenResolved.set(resolvedPartJid, part);
+            seenResolved.set(dedupeKey, part);
           }
         }
 
@@ -216,33 +279,15 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         const vao = roleWithParticipations.participations.filter((p: any) => p.status === 'vou');
         const nvao = roleWithParticipations.participations.filter((p: any) => p.status === 'nvou');
 
-        const vaoNames = await Promise.all(
-          vao.map(async (p: any) => {
-            const resolvedJid = LidMapService.get(p.participant.userJid) || p.participant.userJid;
-            const name = await whatsapp.resolveName(resolvedJid, msg.remoteJid);
-            if (resolvedJid.endsWith('@lid')) return name;
-            let num = resolvedJid.split('@')[0];
-            if (num.startsWith('55') && num.length > 10) num = num.substring(2);
-            return `${name} (${num})`;
-          })
-        );
-        const nvaoNames = await Promise.all(
-          nvao.map(async (p: any) => {
-            const resolvedJid = LidMapService.get(p.participant.userJid) || p.participant.userJid;
-            const name = await whatsapp.resolveName(resolvedJid, msg.remoteJid);
-            if (resolvedJid.endsWith('@lid')) return name;
-            let num = resolvedJid.split('@')[0];
-            if (num.startsWith('55') && num.length > 10) num = num.substring(2);
-            return `${name} (${num})`;
-          })
-        );
+        const vaoNames = await buildRoleParticipantLabels(vao, msg.remoteJid);
+        const nvaoNames = await buildRoleParticipantLabels(nvao, msg.remoteJid);
 
         const icon = status === 'vou' ? '✅' : '❌';
         const actionText = status === 'vou' ? 'confirmou presença' : 'recusou';
         
         let replyText = `${icon} *${msg.pushName}* ${actionText} no rolê *"${targetRole.title}"*!\n\n`;
-        replyText += `✅ *Vão (${vao.length}):* ${vaoNames.join(', ') || 'Ninguém'}\n`;
-        replyText += `❌ *Não vão (${nvao.length}):* ${nvaoNames.join(', ') || 'Todo mundo'}\n\n`;
+        replyText += `✅ *Vão (${vaoNames.length}):* ${vaoNames.join(', ') || 'Ninguém'}\n`;
+        replyText += `❌ *Não vão (${nvaoNames.length}):* ${nvaoNames.join(', ') || 'Todo mundo'}\n\n`;
         replyText += `Para atualizar sua presença, digite *.vou ${targetRole.code}* ou *.nvou ${targetRole.code}*!`;
 
         await whatsapp.sendMessage(msg.remoteJid, replyText);
@@ -301,31 +346,13 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
           const vao = role.participations.filter((p: any) => p.status === 'vou');
           const nvao = role.participations.filter((p: any) => p.status === 'nvou');
 
-          const vaoNames = await Promise.all(
-            vao.map(async (p: any) => {
-              const resolvedJid = LidMapService.get(p.participant.userJid) || p.participant.userJid;
-              const name = await whatsapp.resolveName(resolvedJid, msg.remoteJid);
-              if (resolvedJid.endsWith('@lid')) return name;
-              let num = resolvedJid.split('@')[0];
-              if (num.startsWith('55') && num.length > 10) num = num.substring(2);
-              return `${name} (${num})`;
-            })
-          );
-          const nvaoNames = await Promise.all(
-            nvao.map(async (p: any) => {
-              const resolvedJid = LidMapService.get(p.participant.userJid) || p.participant.userJid;
-              const name = await whatsapp.resolveName(resolvedJid, msg.remoteJid);
-              if (resolvedJid.endsWith('@lid')) return name;
-              let num = resolvedJid.split('@')[0];
-              if (num.startsWith('55') && num.length > 10) num = num.substring(2);
-              return `${name} (${num})`;
-            })
-          );
+          const vaoNames = await buildRoleParticipantLabels(vao, msg.remoteJid);
+          const nvaoNames = await buildRoleParticipantLabels(nvao, msg.remoteJid);
 
           listText += `📌 *[Código: ${role.code}] - ${role.title}*\n`;
           if (role.description) listText += `📝 ${role.description}\n`;
-          listText += `✅ *Vão (${vao.length}):* ${vaoNames.join(', ') || 'Ninguém'}\n`;
-          listText += `❌ *Não vão (${nvao.length}):* ${nvaoNames.join(', ') || 'Todo mundo'}\n\n`;
+          listText += `✅ *Vão (${vaoNames.length}):* ${vaoNames.join(', ') || 'Ninguém'}\n`;
+          listText += `❌ *Não vão (${nvaoNames.length}):* ${nvaoNames.join(', ') || 'Todo mundo'}\n\n`;
         }
 
         if (!targetCode && currentRoles.length > 0) {
