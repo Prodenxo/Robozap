@@ -28,6 +28,7 @@ interface MessageData {
   quoted?: any;
   quotedId?: string;
   quotedParticipant?: string;
+  quotedFromMe?: boolean;
   mentionedJid?: string[];
   messageType: string;
   raw: any;

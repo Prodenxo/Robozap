@@ -1,6 +1,7 @@
 import { processMessage } from '../services/commandRouter';
 import { WhatsAppService } from '../services/whatsapp';
 import { prisma } from '../services/database';
+import { extractReplyContextFromPayload } from '../utils/messageContent';
 
 const whatsapp = new WhatsAppService();
 
@@ -59,53 +60,11 @@ function unwrapIncomingMessage (message: any): any {
   return message
 }
 
-function extractReplyContext (message: any): {
-  quotedId?: string
-  quoted?: any
-  quotedParticipant?: string
-  mentionedJid: string[]
-} {
-  const msgContent = unwrapIncomingMessage(message?.message || {}) || {}
-
-  const context =
-    msgContent.extendedTextMessage?.contextInfo ||
-    msgContent.imageMessage?.contextInfo ||
-    msgContent.videoMessage?.contextInfo ||
-    msgContent.documentMessage?.contextInfo ||
-    msgContent.audioMessage?.contextInfo ||
-    msgContent.stickerMessage?.contextInfo ||
-    msgContent.buttonsResponseMessage?.contextInfo ||
-    msgContent.listResponseMessage?.contextInfo ||
-    null
-
-  if (!context) {
-    return { mentionedJid: [] }
-  }
-
-  const quotedId =
-    context.stanzaId ||
-    context.quotedStanzaId ||
-    context.quotedMessage?.key?.id
-
-  const quotedParticipant =
-    context.participant ||
-    context.quotedMessage?.key?.participant
-
-  return {
-    quotedId,
-    quoted: context.quotedMessage,
-    quotedParticipant,
-    mentionedJid: Array.isArray(context.mentionedJid) ? context.mentionedJid : []
-  }
-}
-
 async function handleMessageUpsert(message: any) {
-  const msgContent = message.message || message.content || {};
+  const msgContent = unwrapIncomingMessage(message.message || message.content || {}) || {};
   const textContent = 
     msgContent.conversation || 
     msgContent.extendedTextMessage?.text || 
-    msgContent.ephemeralMessage?.message?.conversation ||
-    msgContent.ephemeralMessage?.message?.extendedTextMessage?.text ||
     findField(msgContent, 'caption') || 
     '';
 
@@ -118,14 +77,13 @@ async function handleMessageUpsert(message: any) {
     remoteJid;
   const senderName = message.pushName || message.key?.pushName || 'Usuário';
 
-  const replyContext = extractReplyContext(message)
+  const replyContext = extractReplyContextFromPayload(message)
 
   const messageType =
     message.messageType ||
     Object.keys(msgContent)[0] ||
     'unknown'
 
-  // LOG SÓ PARA COMANDOS AGORA
   if (textContent.trim().startsWith('.')) {
     console.log(
       `[COMANDO RECEBIDO] ${senderName}: ${textContent} (QuotedID: ${replyContext.quotedId || 'none'})`
@@ -141,6 +99,7 @@ async function handleMessageUpsert(message: any) {
     quoted: replyContext.quoted,
     quotedId: replyContext.quotedId,
     quotedParticipant: replyContext.quotedParticipant,
+    quotedFromMe: replyContext.quotedFromMe,
     mentionedJid: replyContext.mentionedJid,
     messageType,
     raw: message

@@ -9,6 +9,11 @@ import {
   getActivityCount,
   getParticipantDedupeKey
 } from '../services/activity';
+import {
+  extractTextFromMessageContent,
+  normalizeQuotedContent,
+  unwrapMessageContent
+} from '../utils/messageContent';
 
 const whatsapp = new WhatsAppService();
 
@@ -169,29 +174,8 @@ function isProtectedParticipant (
   return candidates.some(candidate => protectedKeys.has(candidate))
 }
 
-function normalizeQuotedContent (quoted: any): any {
-  if (!quoted) return null
-  if (quoted.message && typeof quoted.message === 'object') {
-    return unwrapMessageContent(quoted.message)
-  }
-  return unwrapMessageContent(quoted)
-}
-
 function getQuotedBodyText (quoted: any): string {
-  if (!quoted) return ''
-
-  const content = normalizeQuotedContent(quoted)
-  if (!content) return ''
-
-  const text =
-    content.conversation ||
-    content.extendedTextMessage?.text ||
-    content.imageMessage?.caption ||
-    content.videoMessage?.caption ||
-    content.documentMessage?.caption ||
-    ''
-
-  return text.replace(/^\s+|\s+$/g, '')
+  return extractTextFromMessageContent(quoted)
 }
 
 function findMedia (m: any): any {
@@ -204,11 +188,8 @@ function findMedia (m: any): any {
   return null
 }
 
-function unwrapMessageContent (message: any): any {
-  if (!message) return null
-  if (message.ephemeralMessage?.message) return unwrapMessageContent(message.ephemeralMessage.message)
-  if (message.viewOnceMessage?.message) return unwrapMessageContent(message.viewOnceMessage.message)
-  return message
+function unwrapMessageContentLocal (message: any): any {
+  return unwrapMessageContent(message)
 }
 
 function stripMarcarCommand (text: string): string {
@@ -225,7 +206,7 @@ function extractTextAfterCommand (fullText: string): string {
 }
 
 function getOwnMediaCaption (rawMessage: any): string {
-  const content = unwrapMessageContent(rawMessage?.message || rawMessage)
+  const content = unwrapMessageContentLocal(rawMessage?.message || rawMessage)
   if (!content) return ''
 
   const caption =
@@ -240,12 +221,38 @@ function getOwnMediaCaption (rawMessage: any): string {
 const MARCAR_DEFAULT_TEXT =
   '📢 *FILHOTE CHAMANDO A TROPA!* 📢\n\nBora reagir, bando de desocupado!'
 
-function buildMarcarBody (msg: any): string {
+async function resolveMarcarBody (msg: any): Promise<string> {
   const fromCommand = extractTextAfterCommand(msg.text || '')
   if (fromCommand.trim()) return fromCommand
 
   if (msg.quotedId || msg.quoted) {
-    const quotedText = getQuotedBodyText(msg.quoted)
+    let quotedText = getQuotedBodyText(msg.quoted)
+
+    if (!quotedText && msg.quotedId) {
+      const baseKey = buildQuotedMessageKey(msg)
+      if (baseKey) {
+        const attempts = [
+          { ...baseKey, fromMe: msg.quotedFromMe ?? false },
+          { ...baseKey, fromMe: true },
+          { ...baseKey, fromMe: false }
+        ]
+
+        for (const key of attempts) {
+          const found = await whatsapp.findMessageByKey(key as {
+            remoteJid: string
+            id: string
+            fromMe?: boolean
+            participant?: string
+          })
+
+          if (!found) continue
+
+          quotedText = extractTextFromMessageContent(found.message || found)
+          if (quotedText) break
+        }
+      }
+    }
+
     if (quotedText) return quotedText
     if (findMedia(normalizeQuotedContent(msg.quoted))) return ''
   }
@@ -282,7 +289,7 @@ function buildQuotedMessageKey (msg: any): Record<string, unknown> | null {
   return {
     remoteJid: quotedKey?.remoteJid || msg.remoteJid,
     id,
-    fromMe: quotedKey?.fromMe ?? false,
+    fromMe: msg.quotedFromMe ?? quotedKey?.fromMe ?? false,
     participant: msg.quotedParticipant || quotedKey?.participant
   }
 }
@@ -988,9 +995,9 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
         return true
       }
 
-      const body = buildMarcarBody(msg)
+      const body = await resolveMarcarBody(msg)
       const textToSend = body || MARCAR_DEFAULT_TEXT
-      const msgContent = unwrapMessageContent(msg.raw?.message) || {}
+      const msgContent = unwrapMessageContentLocal(msg.raw?.message) || {}
       const quotedNormalized = normalizeQuotedContent(msg.quoted)
       const quotedMedia = quotedNormalized ? findMedia(quotedNormalized) : null
       const ownMedia = findMedia(msgContent)

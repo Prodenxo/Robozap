@@ -287,6 +287,49 @@ export class WhatsAppService {
     }
   }
 
+  async findMessageByKey (key: {
+    remoteJid: string
+    id: string
+    fromMe?: boolean
+    participant?: string
+  }): Promise<any | null> {
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/chat/findMessages/${this.instance}`,
+        {
+          where: {
+            key: {
+              remoteJid: key.remoteJid,
+              id: key.id,
+              ...(key.fromMe !== undefined ? { fromMe: key.fromMe } : {}),
+              ...(key.participant ? { participant: key.participant } : {})
+            }
+          }
+        },
+        { headers: this.headers, timeout: 15000 }
+      )
+
+      const payload = response.data
+      const records =
+        payload?.messages?.records ||
+        payload?.messages ||
+        (Array.isArray(payload) ? payload : null)
+
+      if (Array.isArray(records) && records.length > 0) {
+        return records[0]
+      }
+
+      if (payload?.message || payload?.key) {
+        return payload
+      }
+
+      return null
+    } catch (error: any) {
+      console.warn('[WHATSAPP] findMessages falhou:', error.response?.data || error.message)
+      return null
+    }
+  }
+
   async getProfilePictureUrl(jid: string): Promise<string> {
     try {
       if (!jid || typeof jid !== 'string') return '';
