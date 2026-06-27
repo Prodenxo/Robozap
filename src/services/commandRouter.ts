@@ -85,7 +85,7 @@ export const processMessage = async (msg: MessageData) => {
       let currentSettings = group.settings ? (typeof group.settings === 'string' ? JSON.parse(group.settings) : group.settings) : {};
       if (currentSettings && currentSettings.adminMode === true) {
         const isEssential = ['menu', 'vencimento', 'ajuda', 'filhote.ajuda'].includes(command);
-        const allowedForAll = ['role.vou','vou','role.nvou','nvou','vounao','role.sair','role.encerrar','role.cancelar','role.criar','role.elencerrar','roles','role','role.participar'];
+        const allowedForAll = ['role.vou','vou','role.nvou','nvou','vounao','role.sair','role.encerrar','role.cancelar','role.criar','resenha.criar','role.elencerrar','roles','role','role.participar'];
         if (!isEssential && !allowedForAll.includes(command)) {
           let hasPermission = await PermissionGuard.canExecute(
             msg.participant,

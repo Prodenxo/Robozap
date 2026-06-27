@@ -68,6 +68,45 @@ async function buildRoleParticipantLabels (
   return labels
 }
 
+function extractRoleCriarPayload (fullText: string): { title: string, description: string } {
+  const trimmed = fullText.trim()
+  const match = trimmed.match(/^\.(?:role\.criar|resenha\.criar)(?:[\s\n]|$)([\s\S]*)$/i)
+  const payload = match?.[1]?.replace(/^\n/, '') ?? ''
+
+  if (!payload.trim()) {
+    return { title: '', description: '' }
+  }
+
+  const pipeIndex = payload.indexOf('|')
+  if (pipeIndex === -1) {
+    return { title: payload.trim(), description: '' }
+  }
+
+  return {
+    title: payload.slice(0, pipeIndex).trim(),
+    description: payload.slice(pipeIndex + 1).replace(/^\n+/, '').trim()
+  }
+}
+
+function buildRoleCreatedMessage (role: { code: string, title: string, description?: string | null }): string {
+  let text =
+    `✅ *ROLÊ MARCADO!* 🍻\n\n` +
+    `📌 *[Código: ${role.code}] - ${role.title}*`
+
+  const description = role.description?.trim()
+  if (description && description !== 'Sem descrição') {
+    text += `\n\n${description}`
+  }
+
+  text +=
+    `\n\nPara participar, responda com:\n` +
+    `👉 *.vou ${role.code}* - Confirmar presença\n` +
+    `👉 *.nvou ${role.code}* - Recusar / Não vou\n\n` +
+    `Para ver a lista atualizada, digite *.roles ${role.code}*.`
+
+  return text
+}
+
 export const handleSocialCommands = async (command: string, args: string[], msg: any) => {
   const userJid = await whatsapp.resolveJid(LidMapService.get(msg.participant) || msg.participant);
 
@@ -78,46 +117,62 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
       return true;
 
     case 'role.criar':
-    case 'resenha.criar':
-      if (args.length === 0) {
-        await whatsapp.sendMessage(msg.remoteJid, "❌ *ERRO:* Manda o nome do rolê! Ex: `.role.criar Churrasco | Sábado 20h`.");
-        return true;
-      }
-      const [title, description] = args.join(' ').split('|').map(s => s.trim());
-      try {
-        const group = await (prisma as any).group.findUnique({ where: { jid: msg.remoteJid } });
-        if (!group) return true;
+    case 'resenha.criar': {
+      const { title, description } = extractRoleCriarPayload(msg.text || '')
 
-        // Determinar o próximo código numérico sequencial único para o grupo
+      if (!title) {
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '❌ *ERRO:* Manda o nome do rolê!\n\n' +
+          'Exemplo simples:\n`.role.criar Churrasco | Sábado 20h`\n\n' +
+          'Exemplo com texto longo (use | na 1ª linha e o resto embaixo):\n' +
+          '`.role.criar 🚨 Arraiá 🚨 |\nEstá chegando...\nhttps://link-do-grupo`'
+        )
+        return true
+      }
+
+      try {
+        const group = await (prisma as any).group.upsert({
+          where: { jid: msg.remoteJid },
+          update: {},
+          create: { jid: msg.remoteJid }
+        })
+
         const roles = await (prisma as any).roleEvent.findMany({
           where: { groupId: group.id }
-        });
-        let maxCodeNum = 0;
+        })
+        let maxCodeNum = 0
         for (const r of roles) {
-          const num = parseInt(r.code, 10);
+          const num = parseInt(r.code, 10)
           if (!isNaN(num) && num > maxCodeNum) {
-            maxCodeNum = num;
+            maxCodeNum = num
           }
         }
-        const eventCode = (maxCodeNum + 1).toString();
+        const eventCode = (maxCodeNum + 1).toString()
 
         const newRole = await (prisma as any).roleEvent.create({
           data: {
-            title: title || "Novo Rolê",
-            description: description || "Sem descrição",
+            title,
+            description: description || null,
             code: eventCode,
             createdBy: userJid,
             group: { connect: { id: group.id } }
           }
-        });
+        })
+
         await whatsapp.sendMessage(
           msg.remoteJid,
-          `✅ *ROLÊ MARCADO!* 🍻\n\n📌 *[Código: ${newRole.code}] - ${newRole.title}*\n📝 ${newRole.description || 'Sem descrição'}\n\nPara participar, responda com:\n👉 *.vou ${newRole.code}* - Confirmar presença\n👉 *.nvou ${newRole.code}* - Recusar / Não vou\n\nPara ver a lista atualizada, digite *.roles ${newRole.code}*.`
-        );
+          buildRoleCreatedMessage(newRole)
+        )
       } catch (error) {
-        console.error('Error creating role:', error);
+        console.error('Error creating role:', error)
+        await whatsapp.sendMessage(
+          msg.remoteJid,
+          '❌ *Não consegui criar o rolê.* Tenta de novo com um texto um pouco menor ou sem caracteres estranhos.'
+        )
       }
-      return true;
+      return true
+    }
 
     case 'role.encerrar':
     case 'role.cancelar':

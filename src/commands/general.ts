@@ -126,7 +126,7 @@ export const handleGeneralCommands = async (command: string, args: string[], msg
 🤫 *.ignoreme* [on/off] — Ignorar menções do bot.
 
 📅 *ROLÊS & RESENHAS*
-🍻 *.role.criar* / *.resenha.criar* [nome] — Cria rolê.
+🍻 *.role.criar* / *.resenha.criar* [título] | [texto] — Cria rolê (texto longo com enter funciona).
 🎉 *.roles* / *.resenha* [código] — Lista rolês.
 ✅ *.vou* / *.role.vou* [código] — Confirma presença.
 ❌ *.nvou* / *.role.nvou* / *.vounao* — Cancela presença.
