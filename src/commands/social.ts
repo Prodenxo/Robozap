@@ -23,10 +23,9 @@ function isPhoneLikeName (name: string, phoneRaw: string): boolean {
   )
 }
 
-function formatRoleParticipantLabel (
+function formatRoleParticipantName (
   participant: { userJid: string, user?: { pushName?: string | null } },
-  resolvedName: string,
-  displayPhone: string | null
+  resolvedName: string
 ): string {
   const phoneRaw = participant.userJid.split('@')[0]
   const dbName = participant.user?.pushName?.trim()
@@ -39,31 +38,59 @@ function formatRoleParticipantLabel (
     name = dbName || 'Sem nome'
   }
 
-  if (!displayPhone) return name
-
-  return `(${displayPhone}) ${name}`
+  return name
 }
 
-async function buildRoleParticipantLabels (
-  participations: Array<{ participant: { userJid: string, user?: { pushName?: string | null } } }>,
+function formatNumberedListLine (
+  index: number,
+  name: string,
+  displayPhone: string | null
+): string {
+  if (displayPhone) {
+    return `${index}. ${name} (${displayPhone}) ✅`
+  }
+  return `${index}. ${name} ✅`
+}
+
+async function buildNumberedRoleList (
+  participations: Array<{
+    updatedAt: Date | string
+    participant: { userJid: string, user?: { pushName?: string | null } }
+  }>,
   groupJid: string
-): Promise<string[]> {
+): Promise<string> {
+  if (participations.length === 0) return 'Ninguém ainda'
+
   const lidMap = LidMapService.getFullMap()
   const seen = new Set<string>()
-  const labels: string[] = []
+  const entries: Array<{
+    updatedAt: Date
+    participation: (typeof participations)[number]
+  }> = []
 
   for (const entry of participations) {
     const dedupeKey = getParticipantDedupeKey(entry.participant.userJid, lidMap)
     if (seen.has(dedupeKey)) continue
     seen.add(dedupeKey)
-
-    const resolvedJid = await whatsapp.resolveParticipantJid(entry.participant.userJid, groupJid)
-    const displayPhone = formatBrazilDisplayPhone(resolvedJid)
-    const resolvedName = await whatsapp.resolveName(resolvedJid, groupJid)
-    labels.push(formatRoleParticipantLabel(entry.participant, resolvedName, displayPhone))
+    entries.push({
+      updatedAt: new Date(entry.updatedAt),
+      participation: entry
+    })
   }
 
-  return labels
+  entries.sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime())
+
+  const lines: string[] = []
+  for (let i = 0; i < entries.length; i++) {
+    const { participant } = entries[i].participation
+    const resolvedJid = await whatsapp.resolveParticipantJid(participant.userJid, groupJid)
+    const displayPhone = formatBrazilDisplayPhone(resolvedJid)
+    const resolvedName = await whatsapp.resolveName(resolvedJid, groupJid)
+    const name = formatRoleParticipantName(participant, resolvedName)
+    lines.push(formatNumberedListLine(i + 1, name, displayPhone))
+  }
+
+  return lines.join('\n')
 }
 
 function extractRoleCriarPayload (fullText: string): { title: string, description: string } {
@@ -220,9 +247,6 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
 
     case 'vou':
     case 'role.vou':
-    case 'nvou':
-    case 'role.nvou':
-    case 'vounao':
     case 'lista.entrar':
     case 'nicho.entrar':
     case 'lista.sim':
@@ -324,16 +348,19 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
         const vao = roleWithParticipations.participations.filter((p: any) => p.status === 'vou');
         const nvao = roleWithParticipations.participations.filter((p: any) => p.status === 'nvou');
 
-        const vaoNames = await buildRoleParticipantLabels(vao, msg.remoteJid);
-        const nvaoNames = await buildRoleParticipantLabels(nvao, msg.remoteJid);
+        const vaoList = await buildNumberedRoleList(vao, msg.remoteJid);
+        const nvaoList = nvao.length > 0
+          ? await buildNumberedRoleList(nvao, msg.remoteJid)
+          : '';
+        const vaoCount = vaoList === 'Ninguém ainda' ? 0 : vaoList.split('\n').length;
 
         const icon = status === 'vou' ? '✅' : '❌';
         const actionText = status === 'vou' ? 'confirmou presença' : 'recusou';
         
         let replyText = `${icon} *${msg.pushName}* ${actionText} no rolê *"${targetRole.title}"*!\n\n`;
-        replyText += `✅ *Vão (${vaoNames.length}):* ${vaoNames.join(', ') || 'Ninguém'}\n`;
-        if (nvaoNames.length > 0) {
-          replyText += `❌ *Não vão (${nvaoNames.length}):* ${nvaoNames.join(', ')}\n`;
+        replyText += `✅ *Vão (${vaoCount}):*\n${vaoList}\n`;
+        if (nvaoList) {
+          replyText += `\n❌ *Não vão (${nvao.length}):*\n${nvaoList}\n`;
         }
         replyText += `\nPara confirmar presença, digite *.vou*!`;
 
@@ -397,14 +424,17 @@ export const handleSocialCommands = async (command: string, args: string[], msg:
           const vao = role.participations.filter((p: any) => p.status === 'vou');
           const nvao = role.participations.filter((p: any) => p.status === 'nvou');
 
-          const vaoNames = await buildRoleParticipantLabels(vao, msg.remoteJid);
-          const nvaoNames = await buildRoleParticipantLabels(nvao, msg.remoteJid);
+          const vaoList = await buildNumberedRoleList(vao, msg.remoteJid);
+          const nvaoList = nvao.length > 0
+            ? await buildNumberedRoleList(nvao, msg.remoteJid)
+            : '';
+          const vaoCount = vaoList === 'Ninguém ainda' ? 0 : vaoList.split('\n').length;
 
           listText += `📌 *[Código: ${role.code}] - ${role.title}*\n`;
           if (role.description) listText += `📝 ${role.description}\n`;
-          listText += `✅ *Vão (${vaoNames.length}):* ${vaoNames.join(', ') || 'Ninguém'}\n`;
-          if (nvaoNames.length > 0) {
-            listText += `❌ *Não vão (${nvaoNames.length}):* ${nvaoNames.join(', ')}\n`;
+          listText += `✅ *Vão (${vaoCount}):*\n${vaoList}\n`;
+          if (nvaoList) {
+            listText += `\n❌ *Não vão (${nvao.length}):*\n${nvaoList}\n`;
           }
           listText += '\n';
         }

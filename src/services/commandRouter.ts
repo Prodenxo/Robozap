@@ -91,7 +91,7 @@ export const processMessage = async (msg: MessageData) => {
         await whatsapp.syncGroupParticipants(msg.remoteJid)
 
         const isEssential = ['menu', 'vencimento', 'ajuda', 'filhote.ajuda'].includes(command);
-        const allowedForAll = ['role.vou','vou','role.nvou','nvou','vounao','role.sair','role.encerrar','role.cancelar','role.criar','resenha.criar','role.elencerrar','roles','role','role.participar','resenha'];
+        const allowedForAll = ['role.vou','vou','role.sair','role.encerrar','role.cancelar','role.criar','resenha.criar','role.elencerrar','roles','role','role.participar','resenha'];
         const adminModeBypass = ['modoadmin'];
 
         if (!isEssential && !allowedForAll.includes(command) && !adminModeBypass.includes(command)) {
