@@ -11,6 +11,7 @@ import {
 } from '../services/activity';
 import {
   extractTextFromMessageContent,
+  getContextInfoFromPayload,
   normalizeQuotedContent,
   unwrapMessageContent
 } from '../utils/messageContent';
@@ -19,16 +20,7 @@ const whatsapp = new WhatsAppService();
 
 function getQuotedText (quoted: any): string {
   if (!quoted) return ''
-
-  if (quoted.ephemeralMessage?.message) {
-    return getQuotedText(quoted.ephemeralMessage.message)
-  }
-
-  if (quoted.viewOnceMessage?.message) {
-    return getQuotedText(quoted.viewOnceMessage.message)
-  }
-
-  return quoted.conversation || quoted.extendedTextMessage?.text || ''
+  return extractTextFromMessageContent(quoted)
 }
 
 function getQuotedMentionedJids (quoted: any): string[] {
@@ -91,14 +83,25 @@ function isFreshInativosList (createdAt: unknown): boolean {
 async function isQuotedFromBot (msg: any, botJid: string): Promise<boolean> {
   const lidMap = LidMapService.getFullMap()
 
+  if (msg.quotedFromMe === true) return true
   if (msg.quoted?.key?.fromMe === true) return true
+
+  const context = getContextInfoFromPayload(msg.raw)
+  if (context?.quotedMessage?.key?.fromMe === true) return true
+  if (context?.QuotedMessage?.key?.fromMe === true) return true
 
   if (msg.quotedParticipant && isSameAsBot(msg.quotedParticipant, botJid, lidMap)) {
     return true
   }
 
-  if (!msg.quotedParticipant && isInativosListMessage(getQuotedText(msg.quoted))) {
-    return true
+  if (isInativosListMessage(getQuotedText(msg.quoted))) {
+    if (!msg.quotedParticipant) return true
+
+    const resolvedParticipant = await whatsapp.resolveParticipantJid(
+      msg.quotedParticipant,
+      msg.remoteJid
+    )
+    if (isSameAsBot(resolvedParticipant, botJid, lidMap)) return true
   }
 
   if (msg.quotedParticipant === botJid) return true
@@ -697,6 +700,10 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
       const isInativosQuote = isInativosListMessage(quotedText)
       const botJid = await whatsapp.getBotJid()
 
+      console.log(
+        `[RM I] grupo=${msg.remoteJid} | freshList=${hasFreshStoredList} | quote=${hasQuote} | inativosQuote=${isInativosQuote} | quotedFromMe=${msg.quotedFromMe} | quotedParticipant=${msg.quotedParticipant || 'none'}`
+      )
+
       if (!hasFreshStoredList) {
         if (!hasQuote) {
           await whatsapp.sendMessage(
@@ -714,15 +721,6 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
           return true
         }
 
-        const quotedFromBot = await isQuotedFromBot(msg, botJid)
-        if (!quotedFromBot) {
-          await whatsapp.sendMessage(
-            msg.remoteJid,
-            '❌ Responde à *mensagem do Filhote* com a lista de inativos.'
-          )
-          return true
-        }
-      } else if (hasQuote && isInativosQuote) {
         const quotedFromBot = await isQuotedFromBot(msg, botJid)
         if (!quotedFromBot) {
           await whatsapp.sendMessage(
