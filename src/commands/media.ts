@@ -485,7 +485,7 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
           await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaErrorYoutubeApi);
         } else if (message.includes('Timeout')) {
           await whatsapp.sendMessage(msg.remoteJid, '⏱️ *Demorou demais.* Tenta outra música ou um link direto do YouTube.');
-        } else if (message.includes('COBALT') || message.includes('cobalt') || message.includes('ENOTFOUND') || message.includes('ECONNREFUSED')) {
+        } else if (message.includes('ENOTFOUND') || message.includes('ECONNREFUSED')) {
           await whatsapp.sendMessage(
             msg.remoteJid,
             '🔌 *Cobalt inacessível.* Confere COBALT_API_URL no robozap (ex: http://cobalt:9000) e redeploy.'

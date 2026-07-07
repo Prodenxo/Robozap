@@ -66,7 +66,7 @@ export const botTexts = {
     musicaErrorNotFound: "🚫 *ACHEI FOI NADA.* Essa música aí nem existe na minha quebrada. Tenta outro nome.",
     musicaSearch: "🔍 *BUSCANDO BRABA:* \"$query\"... Já te mando o som!",
     musicaErrorGeneric: "💀 *ERRO NO SOM.* Não rolou baixar agora. Tenta de novo em 1 min.",
-    musicaErrorYoutubeLogin: "🔐 *YouTube bloqueou o download.* Confere se o Cobalt tá online (COBALT_API_URL) e tenta de novo em 1 min.",
+    musicaErrorYoutubeLogin: '🔐 *YouTube bloqueou agora.* Tenta de novo em 1 min — o bot usa Cobalt público sem cookies manuais. Se persistir, liga o *yt-session* no Cobalt.',
     musicaErrorYoutubeApi: "📛 *Servidores de download sobrecarregados.* Tenta outra música ou espera um pouco.",
     musicaErrorNoSession: "⚠️ *yt-session sem token.* Se usar yt-session, aumente RAM ou remova YOUTUBE_SESSION_SERVER do cobalt.",
     musicaBusy: "⏳ *Calma, parceiro.* Já tô baixando um som nesse grupo. Pera a anterior terminar.",

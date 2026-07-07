@@ -4,6 +4,7 @@ import { createWriteStream } from 'fs';
 import fs from 'fs';
 import { promisify } from 'util';
 import { pipeline } from 'stream/promises';
+import { hasValidYoutubeCookies } from './youtubeCookies';
 
 const execAsync = promisify(exec);
 
@@ -240,7 +241,7 @@ async function tryPipedRace (
   outputPath: string
 ): Promise<void> {
   const bases = await resolvePipedBases();
-  const pool = bases.slice(0, 12);
+  const pool = bases.slice(0, 8);
   const abort = new AbortController();
   let lastError: Error | null = null;
 
@@ -285,8 +286,8 @@ interface CobaltResponse {
 }
 
 function resolveCobaltBases (): string[] {
-  const fromEnv = envList('COBALT_API_URL');
-  const fallbacks = [
+  const fromEnv = envList('COBALT_API_URL')
+  const publicBases = [
     'https://fox.kittycat.boo',
     'https://dog.kittycat.boo',
     'https://api.cobalt.blackcat.sweeux.org',
@@ -298,12 +299,18 @@ function resolveCobaltBases (): string[] {
     'https://apicobalt.mgytr.top',
     'https://api.cobalt.liubquanti.click',
     'https://api.qwkuns.me'
-  ];
-  
-  if (fromEnv.length) {
-    return uniqueBases([...fromEnv, ...fallbacks]);
+  ]
+
+  const localBases = fromEnv.length ? fromEnv : ['http://cobalt:9000']
+  const hasSession = Boolean(process.env.YOUTUBE_SESSION_SERVER?.trim())
+  const useLocalFirst = hasValidYoutubeCookies() || hasSession
+
+  if (useLocalFirst) {
+    return uniqueBases([...localBases, ...publicBases])
   }
-  return uniqueBases(['http://cobalt:9000', ...fallbacks]);
+
+  console.log('[COBALT] Modo sem cookies — priorizando instâncias públicas')
+  return uniqueBases([...publicBases, ...localBases])
 }
 
 function getCobaltAuthHeaders (): Record<string, string> {
@@ -402,20 +409,8 @@ function isYoutubeBlockError (message: string): boolean {
     lower.includes('no_session_tokens') ||
     lower.includes('error.api.youtube') ||
     lower.includes('sign in') ||
-    lower.includes('bot')
-  )
-}
-
-function isNetworkError (message: string): boolean {
-  const lower = message.toLowerCase()
-  return (
-    lower.includes('econnrefused') ||
-    lower.includes('enotfound') ||
-    lower.includes('econnreset') ||
-    lower.includes('etimedout') ||
-    lower.includes('timeout') ||
-    lower.includes('network') ||
-    lower.includes('socket hang up')
+    lower.includes('confirm you') ||
+    lower.includes('not a bot')
   )
 }
 
@@ -442,11 +437,8 @@ async function tryCobaltDownload (
   }
 
   let lastError: Error | null = null
-  let skipPublicCobalt = false
 
   for (const base of ordered) {
-    if (skipPublicCobalt && !localBases.includes(base)) continue
-
     for (const variant of COBALT_REQUEST_VARIANTS) {
       try {
         console.log(`[COBALT] Processando ${url} via ${base} (${variant.audioFormat ?? 'mp3'})`)
@@ -464,11 +456,6 @@ async function tryCobaltDownload (
         const message = getAxiosErrorDetail(error)
         console.warn(`[COBALT] Falha em ${base} (${variant.audioFormat ?? 'mp3'}): ${message}`)
         lastError = new Error(message)
-
-        if (localBases.includes(base) && isYoutubeBlockError(message) && !isNetworkError(message)) {
-          skipPublicCobalt = true
-          console.warn('[COBALT] Bloqueio YouTube no Cobalt local — pulando instâncias públicas')
-        }
       }
     }
   }
@@ -632,8 +619,8 @@ export async function downloadYouTubeAudioProxy (
     console.warn('[MEDIA] invidious falhou:', message)
   }
 
-  const last = errors[errors.length - 1] ?? ''
-  if (isYoutubeBlockError(last)) {
+  const last = errors.join(' | ')
+  if (errors.some((entry) => isYoutubeBlockError(entry))) {
     throw new Error('error.api.youtube.login')
   }
 

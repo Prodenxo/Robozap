@@ -178,7 +178,20 @@ export class MediaService {
           error instanceof Error ? error.message : String(error)
         console.error(`[YT-DLP] Falha (${strategy.name}):`, message)
         lastError = error instanceof Error ? error : new Error(message)
+
+        if (message.toLowerCase().includes('sign in') || message.toLowerCase().includes('not a bot')) {
+          // continua tentando outras estratégias / cookies
+        }
       }
+    }
+
+    const finalMessage = lastError?.message ?? ''
+    if (
+      finalMessage.toLowerCase().includes('sign in') ||
+      finalMessage.toLowerCase().includes('not a bot') ||
+      finalMessage.includes('error.api.youtube')
+    ) {
+      throw new Error('error.api.youtube.login')
     }
 
     throw lastError ?? new Error('Não foi possível baixar o conteúdo do YouTube.')
@@ -199,11 +212,12 @@ export class MediaService {
       try {
         await this.runYtDlp(url, outputPath, 'audio');
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error('[YT-DLP ERROR]:', message);
-        throw new Error(
-          'Não consegui baixar o áudio. Suba o Cobalt (porta 9000) e aponte COBALT_API_URL, ou tente de novo.'
-        );
+        const message = error instanceof Error ? error.message : String(error)
+        console.error('[YT-DLP ERROR]:', message)
+        if (message.includes('error.api.youtube.login')) {
+          throw new Error('error.api.youtube.login')
+        }
+        throw new Error('error.download.failed')
       }
     });
   }

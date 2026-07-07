@@ -27,25 +27,22 @@ services:
       API_PORT: "9000"
       RATELIMIT_WINDOW: "60"
       RATELIMIT_MAX: "30"
-      # Cookies opcionais — só monte cookies.json se quiser reforço (YOUTUBE_USE_COOKIES=true no robozap)
-      # COOKIE_PATH: /cookies.json
-      YOUTUBE_SESSION_SERVER: ""
+      # Tokens automáticos (sem cookies manuais) — precisa do yt-session saudável
+      YOUTUBE_SESSION_SERVER: "http://yt-session:8080"
       HTTP_PROXY: "${HTTP_PROXY:-}"
       HTTPS_PROXY: "${HTTPS_PROXY:-}"
       http_proxy: "${HTTP_PROXY:-}"
       https_proxy: "${HTTPS_PROXY:-}"
-    # volumes:
-    #   - ./cookies.json:/cookies.json:ro
+    depends_on:
+      - yt-session
     networks:
       - robozap-net
 
-  # Opcional — só se souber configurar; senão deixe parado
+  # Gera PO tokens pro Cobalt — evita atualizar cookies na mão
   yt-session:
     image: ghcr.io/imputnet/yt-session-generator:webserver
     init: true
     restart: unless-stopped
-    profiles:
-      - yt-session
     networks:
       - robozap-net
 

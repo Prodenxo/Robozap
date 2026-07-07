@@ -70,14 +70,24 @@ export function ensureYtDlpCookiesFile (): string | null {
   }
 }
 
+/** cookies.json existe e tem conteúdo real (não array vazio). */
+export function hasValidYoutubeCookies (): boolean {
+  const jsonPath = process.env.COBALT_COOKIES_JSON?.trim() || COOKIE_FILE
+  if (!fs.existsSync(jsonPath)) return false
+
+  try {
+    const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf-8')) as { youtube?: string[] }
+    const header = raw.youtube?.[0]
+    return typeof header === 'string' && header.trim().length > 20
+  } catch {
+    return false
+  }
+}
+
 export function shouldUseYoutubeCookies (): boolean {
   if (process.env.YOUTUBE_USE_COOKIES === 'false') return false
-  if (process.env.YOUTUBE_USE_COOKIES === 'true') return true
-
-  const explicit = process.env.YOUTUBE_COOKIES_PATH?.trim()
-    || process.env.YTDLP_COOKIES_PATH?.trim()
-  if (explicit && fs.existsSync(explicit)) return true
-
-  // Padrão: sem cookies (Cobalt/Piped/Invidious primeiro)
+  if (process.env.YOUTUBE_USE_COOKIES === 'true') {
+    return hasValidYoutubeCookies()
+  }
   return false
 }

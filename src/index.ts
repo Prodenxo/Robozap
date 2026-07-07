@@ -6,7 +6,7 @@ dotenv.config();
 
 import { probeCobaltHealth } from './services/youtubeDownload';
 
-const MUSIC_BUILD = '2026-07-tocar-cobalt-fix';
+const MUSIC_BUILD = '2026-07-tocar-nocookies-v2';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -62,7 +62,7 @@ async function logMusicBackendStatus (): Promise<void> {
   }
 
   console.log(
-    '[ROBOZAP] .tocar: Cobalt → Piped → Invidious → yt-dlp (sem cookies por padrão)'
+    '[ROBOZAP] .tocar: Cobalt público → local+session → Piped → Invidious → yt-dlp (sem cookies manuais)'
   );
 }
 
