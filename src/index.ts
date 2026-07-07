@@ -1,11 +1,12 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import axios from 'axios';
 import { handleWebhook } from './webhooks/evolution';
 
 dotenv.config();
 
-const MUSIC_BUILD = '2026-06-tocar-nocookies';
+import { probeCobaltHealth } from './services/youtubeDownload';
+
+const MUSIC_BUILD = '2026-07-tocar-cobalt-fix';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -42,23 +43,21 @@ async function logMusicBackendStatus (): Promise<void> {
   let cobaltOnline = false
 
   for (const cobaltUrl of all) {
-    try {
-      const { data } = await axios.get(cobaltUrl, { timeout: 5000 });
-      const version = data?.cobalt?.version ?? 'ok';
-      console.log(`[ROBOZAP] Cobalt online em ${cobaltUrl} (versão ${version})`);
+    const probe = await probeCobaltHealth(cobaltUrl)
+    if (probe.ok) {
+      console.log(`[ROBOZAP] Cobalt OK em ${cobaltUrl} (${probe.detail})`)
       cobaltOnline = true
       break
-    } catch {
-      // tenta próximo
     }
+    console.warn(`[ROBOZAP] Cobalt falhou em ${cobaltUrl}: ${probe.detail}`)
   }
 
   if (!cobaltOnline) {
     console.error(
-      '[ROBOZAP] Cobalt OFFLINE — suba o container ghcr.io/imputnet/cobalt na porta 9000',
-      '\n→ Docker Compose: docker compose up -d (robozap + cobalt juntos)',
-      '\n→ Painel (2 apps): COBALT_API_URL=http://NOME-INTERNO-DO-COBALT:9000',
-      '\n→ Mesmo servidor: COBALT_API_URL=http://127.0.0.1:9000'
+      '[ROBOZAP] Cobalt OFFLINE ou sem resposta POST — .tocar vai falhar',
+      '\n→ Easypanel (mesmo projeto): COBALT_API_URL=http://cobalt:9000',
+      '\n→ Apps separados: use o hostname interno do serviço cobalt',
+      '\n→ yt-session quebrado (503) NÃO afeta se Cobalt tiver cookies'
     );
   }
 

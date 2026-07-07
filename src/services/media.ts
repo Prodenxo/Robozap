@@ -27,9 +27,12 @@ interface YtSessionResponse {
 }
 
 async function fetchYtSessionTokens(): Promise<{ poToken: string; visitorData: string } | null> {
+  const sessionServer = process.env.YOUTUBE_SESSION_SERVER?.trim()
+  if (!sessionServer) return null
+
   const urls = [
-    'http://yt-session:8080/token',
-    'http://yt-session:8080/'
+    `${sessionServer.replace(/\/$/, '')}/token`,
+    `${sessionServer.replace(/\/$/, '')}/`
   ];
 
   for (const url of urls) {
@@ -190,7 +193,7 @@ export class MediaService {
       } catch (proxyError: unknown) {
         const proxyMessage =
           proxyError instanceof Error ? proxyError.message : String(proxyError);
-        console.warn('[MEDIA] Proxies falharam, tentando yt-dlp:', proxyMessage);
+        console.error('[MEDIA] Proxies falharam:', proxyMessage);
       }
 
       try {

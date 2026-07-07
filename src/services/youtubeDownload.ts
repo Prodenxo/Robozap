@@ -122,7 +122,8 @@ async function downloadStreamToFile (
   streamUrl: string,
   outputPath: string,
   mimeType?: string,
-  referer?: string
+  referer?: string,
+  extraHeaders?: Record<string, string>
 ): Promise<void> {
   const rawExt = pickExtension(mimeType);
   const wantsMp3 = outputPath.toLowerCase().endsWith('.mp3');
@@ -138,7 +139,8 @@ async function downloadStreamToFile (
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       Accept: '*/*',
-      ...(referer ? { Referer: referer } : {})
+      ...(referer ? { Referer: referer } : {}),
+      ...(extraHeaders ?? {})
     }
   });
 
@@ -304,55 +306,70 @@ function resolveCobaltBases (): string[] {
   return uniqueBases(['http://cobalt:9000', ...fallbacks]);
 }
 
+function getCobaltAuthHeaders (): Record<string, string> {
+  const apiKey = process.env.COBALT_API_KEY?.trim()
+  if (!apiKey) return {}
+  return { Authorization: `Api-Key ${apiKey}` }
+}
+
+interface CobaltRequestBody {
+  url: string
+  downloadMode: 'audio'
+  audioFormat?: 'mp3' | 'best' | 'opus' | 'ogg'
+  audioBitrate?: string
+  youtubeBetterAudio?: boolean
+}
+
 async function requestCobaltAudio (
   base: string,
-  youtubeUrl: string
+  youtubeUrl: string,
+  bodyOverrides: Partial<CobaltRequestBody> = {}
 ): Promise<{ downloadUrl: string; base: string }> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
-    'Content-Type': 'application/json'
-  };
-
-  const apiKey = process.env.COBALT_API_KEY?.trim();
-  if (apiKey) {
-    headers.Authorization = `Api-Key ${apiKey}`;
+    'Content-Type': 'application/json',
+    ...getCobaltAuthHeaders()
   }
 
-  const endpoint = `${normalizeApiBase(base)}/`;
-  const normalizedUrl = normalizeYoutubeWatchUrl(youtubeUrl);
+  const endpoint = `${normalizeApiBase(base)}/`
+  const normalizedUrl = normalizeYoutubeWatchUrl(youtubeUrl)
+
+  const body: CobaltRequestBody = {
+    url: normalizedUrl,
+    downloadMode: 'audio',
+    audioFormat: 'mp3',
+    audioBitrate: '128',
+    youtubeBetterAudio: true,
+    ...bodyOverrides
+  }
 
   const { data } = await axios.post<CobaltResponse>(
     endpoint,
-    {
-      url: normalizedUrl,
-      downloadMode: 'audio',
-      audioFormat: 'mp3',
-      audioBitrate: '128',
-      youtubeBetterAudio: true
-    },
-    { headers, timeout: 45000 }
-  );
+    body,
+    { headers, timeout: 60000 }
+  )
 
   if (data.status === 'error') {
-    throw new Error(data.error?.code ?? 'erro cobalt');
+    throw new Error(data.error?.code ?? 'erro cobalt')
   }
 
   if (!data.url || !['tunnel', 'redirect'].includes(data.status)) {
-    throw new Error(`resposta cobalt inválida: ${data.status}`);
+    throw new Error(`resposta cobalt inválida: ${data.status}`)
   }
 
-  let downloadUrl = data.url;
+  let downloadUrl = data.url
   if (!downloadUrl.startsWith('http')) {
-    downloadUrl = `${normalizeApiBase(base)}${downloadUrl.startsWith('/') ? '' : '/'}${downloadUrl}`;
+    downloadUrl = `${normalizeApiBase(base)}${downloadUrl.startsWith('/') ? '' : '/'}${downloadUrl}`
   }
 
+  const cobaltBase = normalizeApiBase(base)
   if (downloadUrl.includes('127.0.0.1') || downloadUrl.includes('localhost')) {
     downloadUrl = downloadUrl
-      .replace(/https?:\/\/127\.0\.0\.1:\d+/g, normalizeApiBase(base))
-      .replace(/https?:\/\/localhost:\d+/g, normalizeApiBase(base));
+      .replace(/https?:\/\/127\.0\.0\.1:\d+/g, cobaltBase)
+      .replace(/https?:\/\/localhost:\d+/g, cobaltBase)
   }
 
-  return { downloadUrl, base: normalizeApiBase(base) };
+  return { downloadUrl, base: cobaltBase }
 }
 
 async function promiseAny<T> (promises: Array<Promise<T>>): Promise<T> {
@@ -389,6 +406,25 @@ function isYoutubeBlockError (message: string): boolean {
   )
 }
 
+function isNetworkError (message: string): boolean {
+  const lower = message.toLowerCase()
+  return (
+    lower.includes('econnrefused') ||
+    lower.includes('enotfound') ||
+    lower.includes('econnreset') ||
+    lower.includes('etimedout') ||
+    lower.includes('timeout') ||
+    lower.includes('network') ||
+    lower.includes('socket hang up')
+  )
+}
+
+const COBALT_REQUEST_VARIANTS: Array<Partial<CobaltRequestBody>> = [
+  { audioFormat: 'mp3', audioBitrate: '128', youtubeBetterAudio: true },
+  { audioFormat: 'mp3', audioBitrate: '128', youtubeBetterAudio: false },
+  { audioFormat: 'best', youtubeBetterAudio: false }
+]
+
 async function tryCobaltDownload (
   url: string,
   outputPath: string,
@@ -411,20 +447,28 @@ async function tryCobaltDownload (
   for (const base of ordered) {
     if (skipPublicCobalt && !localBases.includes(base)) continue
 
-    try {
-      console.log(`[COBALT] Processando ${url} via ${base}`)
-      const { downloadUrl } = await requestCobaltAudio(base, url)
-      await downloadStreamToFile(downloadUrl, outputPath, 'audio/mpeg', base)
-      console.log(`[COBALT] Download concluído via ${base}`)
-      return
-    } catch (error: unknown) {
-      const message = getAxiosErrorDetail(error)
-      console.warn(`[COBALT] Falha em ${base}: ${message}`)
-      lastError = new Error(message)
+    for (const variant of COBALT_REQUEST_VARIANTS) {
+      try {
+        console.log(`[COBALT] Processando ${url} via ${base} (${variant.audioFormat ?? 'mp3'})`)
+        const { downloadUrl } = await requestCobaltAudio(base, url, variant)
+        await downloadStreamToFile(
+          downloadUrl,
+          outputPath,
+          'audio/mpeg',
+          base,
+          getCobaltAuthHeaders()
+        )
+        console.log(`[COBALT] Download concluído via ${base}`)
+        return
+      } catch (error: unknown) {
+        const message = getAxiosErrorDetail(error)
+        console.warn(`[COBALT] Falha em ${base} (${variant.audioFormat ?? 'mp3'}): ${message}`)
+        lastError = new Error(message)
 
-      if (localBases.includes(base) && isYoutubeBlockError(message)) {
-        skipPublicCobalt = true
-        console.warn('[COBALT] Bloqueio YouTube no Cobalt local — pulando instâncias públicas')
+        if (localBases.includes(base) && isYoutubeBlockError(message) && !isNetworkError(message)) {
+          skipPublicCobalt = true
+          console.warn('[COBALT] Bloqueio YouTube no Cobalt local — pulando instâncias públicas')
+        }
       }
     }
   }
@@ -482,7 +526,57 @@ async function tryInvidiousDownload (
   throw new Error('Nenhuma instância Invidious respondeu.');
 }
 
-let downloadChain: Promise<void> = Promise.resolve();
+/** Testa se o robozap alcança o Cobalt (GET + POST). */
+export async function probeCobaltHealth (base: string): Promise<{
+  ok: boolean
+  detail: string
+}> {
+  const normalized = normalizeApiBase(base)
+
+  try {
+    const { data } = await axios.get(normalized, { timeout: 8000 })
+    const version = data?.cobalt?.version ?? 'ok'
+    console.log(`[COBALT] GET ${normalized} → v${version}`)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { ok: false, detail: `GET falhou: ${message}` }
+  }
+
+  try {
+    const { data } = await axios.post<CobaltResponse>(
+      `${normalized}/`,
+      {
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        downloadMode: 'audio',
+        audioFormat: 'mp3',
+        youtubeBetterAudio: false
+      },
+      {
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...getCobaltAuthHeaders()
+        },
+        timeout: 25000
+      }
+    )
+
+    if (data.status === 'error') {
+      return { ok: false, detail: `POST erro: ${data.error?.code ?? 'unknown'}` }
+    }
+
+    if (data.url && ['tunnel', 'redirect'].includes(data.status)) {
+      return { ok: true, detail: `POST ok (${data.status})` }
+    }
+
+    return { ok: false, detail: `POST resposta inválida: ${data.status}` }
+  } catch (error: unknown) {
+    const message = getAxiosErrorDetail(error)
+    return { ok: false, detail: `POST falhou: ${message}` }
+  }
+}
+
+let downloadChain: Promise<void> = Promise.resolve()
 
 export function enqueueYouTubeDownload<T> (
   task: () => Promise<T>
