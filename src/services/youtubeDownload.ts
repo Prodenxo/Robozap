@@ -130,7 +130,7 @@ async function convertToMp3(
   inputPath: string,
   outputPath: string,
 ): Promise<void> {
-  const command = `ffmpeg -y -i ${shellQuote(inputPath)} -vn -acodec libmp3lame -q:a 2 ${shellQuote(outputPath)}`;
+  const command = `ffmpeg -y -i ${shellQuote(inputPath)} -vn -acodec libmp3lame -q:a 0 ${shellQuote(outputPath)}`;
   await execAsync(command);
   if (inputPath !== outputPath && fs.existsSync(inputPath)) {
     fs.unlinkSync(inputPath);
@@ -264,6 +264,7 @@ async function tryPipedRace(
 
   await new Promise<void>((resolve, reject) => {
     let pending = pool.length;
+    let settled = false;
     if (pending === 0) {
       reject(new Error("Nenhuma instância Piped configurada."));
       return;
@@ -271,6 +272,7 @@ async function tryPipedRace(
 
     for (const base of pool) {
       void (async () => {
+        const tempPath = `${outputPath}.piped.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.part`;
         try {
           console.log(`[PIPED] Tentando ${base} — vídeo ${videoId}`);
           const stream = await fetchPipedAudioStream(
@@ -278,17 +280,30 @@ async function tryPipedRace(
             videoId,
             abort.signal,
           );
-          abort.abort();
+          if (abort.signal.aborted || settled) return;
+
           await downloadStreamToFile(
             stream.url,
-            outputPath,
+            tempPath,
             stream.mimeType,
             base,
           );
+
+          if (abort.signal.aborted || settled) return;
+          if (!fs.existsSync(tempPath) || fs.statSync(tempPath).size < 1024) {
+            throw new Error("Download vazio ou corrompido.");
+          }
+
+          settled = true;
+          abort.abort();
+          fs.renameSync(tempPath, outputPath);
           console.log(`[PIPED] Sucesso via ${base}`);
           resolve();
         } catch (error: unknown) {
-          if (abort.signal.aborted) return;
+          if (fs.existsSync(tempPath)) {
+            try { fs.unlinkSync(tempPath); } catch { /* ignore */ }
+          }
+          if (abort.signal.aborted || settled) return;
 
           const code = (error as { code?: string })?.code;
           const message =
@@ -409,7 +424,7 @@ async function requestCobaltAudio(
     url: normalizedUrl,
     downloadMode: "audio",
     audioFormat: "mp3",
-    audioBitrate: "128",
+    audioBitrate: "320",
     youtubeBetterAudio: true,
     ...bodyOverrides,
   };
@@ -482,8 +497,9 @@ function isYoutubeBlockError(message: string): boolean {
 }
 
 const COBALT_REQUEST_VARIANTS: Array<Partial<CobaltRequestBody>> = [
-  { audioFormat: 'mp3', audioBitrate: '128', youtubeBetterAudio: false },
-  { audioFormat: 'best', youtubeBetterAudio: false }
+  { audioFormat: 'mp3', audioBitrate: '320', youtubeBetterAudio: true },
+  { audioFormat: 'best', youtubeBetterAudio: true },
+  { audioFormat: 'mp3', audioBitrate: '192', youtubeBetterAudio: false }
 ]
 
 async function attemptCobaltDownload (
@@ -495,18 +511,34 @@ async function attemptCobaltDownload (
 ): Promise<string> {
   if (signal?.aborted) throw new Error('abort')
 
-  const { downloadUrl } = await requestCobaltAudio(base, url, variant)
-  if (signal?.aborted) throw new Error('abort')
+  // Arquivo temporário por tentativa — evita corrida corrompendo o MP3 final
+  const tempPath = `${outputPath}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.part`
 
-  await downloadStreamToFile(
-    downloadUrl,
-    outputPath,
-    'audio/mpeg',
-    base,
-    getCobaltAuthHeaders()
-  )
+  try {
+    const { downloadUrl } = await requestCobaltAudio(base, url, variant)
+    if (signal?.aborted) throw new Error('abort')
 
-  return normalizeApiBase(base)
+    await downloadStreamToFile(
+      downloadUrl,
+      tempPath,
+      'audio/mpeg',
+      base,
+      getCobaltAuthHeaders()
+    )
+
+    if (signal?.aborted) throw new Error('abort')
+
+    if (!fs.existsSync(tempPath) || fs.statSync(tempPath).size < 1024) {
+      throw new Error('Download vazio ou corrompido.')
+    }
+
+    fs.renameSync(tempPath, outputPath)
+    return normalizeApiBase(base)
+  } finally {
+    if (fs.existsSync(tempPath)) {
+      try { fs.unlinkSync(tempPath) } catch { /* ignore */ }
+    }
+  }
 }
 
 async function tryCobaltRace (
@@ -519,10 +551,11 @@ async function tryCobaltRace (
   const abort = new AbortController()
   let lastError: Error | null = null
 
-  console.log(`[COBALT] Corrida paralela em ${pool.length} instâncias`)
+  console.log(`[COBALT] Corrida paralela em ${pool.length} instâncias (qualidade alta)`)
 
   await new Promise<void>((resolve, reject) => {
     let pending = pool.length
+    let settled = false
     if (pending === 0) {
       reject(new Error('Nenhuma instância Cobalt configurada.'))
       return
@@ -531,13 +564,15 @@ async function tryCobaltRace (
     for (const base of pool) {
       void attemptCobaltDownload(url, outputPath, base, variant, abort.signal)
         .then((winner) => {
+          if (settled) return
+          settled = true
           abort.abort()
           rememberCobaltWinner(winner)
           console.log(`[COBALT] Download concluído via ${winner}`)
           resolve()
         })
         .catch((error: unknown) => {
-          if (abort.signal.aborted) return
+          if (abort.signal.aborted || settled) return
 
           const message = getAxiosErrorDetail(error)
           if (!isFastFailCobaltError(message)) {
@@ -726,12 +761,28 @@ export async function downloadYouTubeAudioProxy(
 
   const errors: string[] = [];
 
-  // 1) Cobalt local + 2) Piped em paralelo — quem responder primeiro ganha
+  // 1) Cobalt e Piped em paralelo — cada um em arquivo próprio (evita MP3 corrompido)
   try {
-    await promiseAny([
-      tryCobaltDownload(url, outputPath),
-      tryPipedRace(videoId, outputPath),
+    const cobaltTemp = `${outputPath}.cobalt.tmp`;
+    const pipedTemp = `${outputPath}.piped.tmp`;
+
+    const winner = await promiseAny([
+      tryCobaltDownload(url, cobaltTemp).then(() => "cobalt" as const),
+      tryPipedRace(videoId, pipedTemp).then(() => "piped" as const),
     ]);
+
+    const source = winner === "cobalt" ? cobaltTemp : pipedTemp;
+    const other = winner === "cobalt" ? pipedTemp : cobaltTemp;
+
+    if (!fs.existsSync(source) || fs.statSync(source).size < 1024) {
+      throw new Error("Download vazio ou corrompido.");
+    }
+
+    fs.renameSync(source, outputPath);
+    if (fs.existsSync(other)) {
+      try { fs.unlinkSync(other); } catch { /* ignore */ }
+    }
+
     return;
   } catch (aggregateError: unknown) {
     if (

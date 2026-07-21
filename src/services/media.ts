@@ -111,9 +111,103 @@ function getStrategies (tokens: { poToken: string; visitorData: string } | null)
 }
 
 export class MediaService {
+  private async searchYouTubeViaPiped (query: string): Promise<string | null> {
+    const bases = [
+      ...(process.env.PIPED_API_URL ?? '')
+        .split(',')
+        .map((value) => value.trim().replace(/\/$/, ''))
+        .filter(Boolean),
+      'https://pipedapi.kavin.rocks',
+      'https://pipedapi.syncpundit.io',
+      'https://api-piped.mha.fi',
+      'https://pipedapi.tokhmi.xyz',
+      'https://piped-api.lunar.icu'
+    ]
+
+    const encoded = encodeURIComponent(query)
+
+    for (const base of bases.slice(0, 4)) {
+      try {
+        const { data } = await axios.get(`${base}/search`, {
+          params: { q: query, filter: 'music_songs' },
+          timeout: 8000,
+          headers: { 'User-Agent': 'robozap/1.0' }
+        })
+
+        const items = Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data)
+            ? data
+            : []
+
+        const video = items.find(
+          (item: any) =>
+            item?.url ||
+            item?.id ||
+            item?.videoId ||
+            typeof item?.url === 'string'
+        )
+
+        if (!video) {
+          // fallback sem filtro music
+          const { data: all } = await axios.get(`${base}/search?q=${encoded}&filter=videos`, {
+            timeout: 8000,
+            headers: { 'User-Agent': 'robozap/1.0' }
+          })
+          const list = Array.isArray(all?.items) ? all.items : Array.isArray(all) ? all : []
+          const first = list[0]
+          if (!first) continue
+          const id = first.videoId || first.id || String(first.url || '').replace(/^\//, '')
+          const cleanId = String(id).replace(/^\/watch\?v=/, '').split('&')[0]
+          if (cleanId && cleanId.length >= 11) {
+            console.log(`[YT-SEARCH] Piped (${base}): ${cleanId}`)
+            return `https://www.youtube.com/watch?v=${cleanId.slice(0, 11)}`
+          }
+          continue
+        }
+
+        const id =
+          video.videoId ||
+          video.id ||
+          String(video.url || '').replace(/^\/watch\?v=/, '').split('&')[0]
+        const cleanId = String(id).replace(/^\//, '')
+        if (cleanId && cleanId.length >= 11) {
+          console.log(`[YT-SEARCH] Piped music (${base}): ${cleanId}`)
+          return `https://www.youtube.com/watch?v=${cleanId.slice(0, 11)}`
+        }
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.warn(`[YT-SEARCH] Piped falhou em ${base}: ${message}`)
+      }
+    }
+
+    return null
+  }
+
   async searchYouTube (query: string): Promise<string | null> {
-    const results = await ytSearch(query)
-    return results.videos.length > 0 ? results.videos[0].url : null
+    const started = Date.now()
+
+    try {
+      const pipedUrl = await this.searchYouTubeViaPiped(query)
+      if (pipedUrl) {
+        console.log(`[YT-SEARCH] OK via Piped em ${Date.now() - started}ms`)
+        return pipedUrl
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn('[YT-SEARCH] Piped search falhou:', message)
+    }
+
+    try {
+      const results = await ytSearch(query)
+      const url = results.videos.length > 0 ? results.videos[0].url : null
+      console.log(`[YT-SEARCH] Fallback yt-search em ${Date.now() - started}ms → ${url || 'vazio'}`)
+      return url
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('[YT-SEARCH] yt-search falhou:', message)
+      return null
+    }
   }
 
   private async runYtDlp (
@@ -156,7 +250,7 @@ export class MediaService {
         if (fs.existsSync(targetPath)) {
           if (kind === 'audio') {
             console.log(`[YT-DLP] Sucesso no download bruto. Convertendo para MP3...`)
-            const convertCommand = `ffmpeg -y -i ${shellQuote(targetPath)} -vn -acodec libmp3lame -q:a 2 ${shellQuote(outputPath)}`
+            const convertCommand = `ffmpeg -y -i ${shellQuote(targetPath)} -vn -acodec libmp3lame -q:a 0 ${shellQuote(outputPath)}`
             await execAsync(convertCommand)
             
             if (fs.existsSync(targetPath)) {

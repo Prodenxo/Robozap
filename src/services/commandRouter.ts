@@ -79,6 +79,22 @@ export const processMessage = async (msg: MessageData) => {
   if (isGroup && ADMIN_COMMANDS.has(command)) {
     console.log(`[ADMIN] .${command} | grupo=${msg.remoteJid} | user=${msg.participant} (${msg.pushName})`)
     await whatsapp.syncGroupParticipants(msg.remoteJid);
+
+    let isAdmin = await whatsapp.isParticipantAdmin(msg.remoteJid, msg.participant)
+    if (!isAdmin) {
+      isAdmin = await PermissionGuard.canExecute(
+        msg.participant,
+        msg.remoteJid,
+        PermissionGuard.ROLES.ADM_CONFIAVEL
+      )
+    }
+
+    if (!isAdmin) {
+      console.log(`[ROUTER] Bloqueado .${command} — não-admin: ${msg.participant}`)
+      await whatsapp.sendReaction(msg.remoteJid, msg.id, '❌', false)
+      await whatsapp.sendMessage(msg.remoteJid, botTexts.admin.noPerm)
+      return
+    }
   }
 
   // 1.1. Guard do Modo Admin (Restringir bot apenas para administradores)

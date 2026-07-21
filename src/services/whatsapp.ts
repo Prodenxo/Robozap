@@ -484,6 +484,15 @@ export class WhatsAppService {
         fileName: finalFileName
       };
 
+      // Áudio como arquivo (não nota de voz) — WhatsApp não esmaga a qualidade
+      if (type === 'audio') {
+        payload.ptt = false
+        payload.options = {
+          ...(payload.options || {}),
+          ptt: false
+        }
+      }
+
       if (quotedMsgId) {
         payload.quoted = {
           key: {
@@ -824,8 +833,15 @@ export class WhatsAppService {
                 where: { groupId_userJid: { groupId: group.id, userJid: jid } }
               })
 
-              if (!adminInfo.isAdmin && existing && existing.roleCode < 5) {
-                roleCode = existing.roleCode
+              // Só preserva cargos internos do bot (confiável/moderador).
+              // Admin/dono do WhatsApp sempre vêm do sync ao vivo — evita membro comum
+              // com roleCode antigo liberando .promover / .banir.
+              if (!adminInfo.isAdmin && existing) {
+                if (existing.roleCode === 2 || existing.roleCode === 4) {
+                  roleCode = existing.roleCode
+                } else {
+                  roleCode = 5
+                }
               }
 
               const pAdmin = p.admin ?? p.role ?? p.roleCode;
@@ -976,49 +992,62 @@ export class WhatsAppService {
     }
   }
 
+  private async purgeParticipantLinks (participantId: string): Promise<void> {
+    await (prisma as any).roleParticipation.deleteMany({
+      where: { participantId }
+    })
+    await (prisma as any).nicheMembership.deleteMany({
+      where: { participantId }
+    })
+  }
+
   private async cleanupStaleGroupParticipants (
     groupId: string,
     syncedJids: string[]
   ): Promise<void> {
     const keepSet = this.buildParticipantKeepSet(syncedJids)
-    const stale = await (prisma as any).groupParticipant.findMany({
-      where: {
-        groupId,
-        userJid: { notIn: Array.from(keepSet) }
-      }
-    })
-
     const lidMap = LidMapService.getFullMap()
     const all = await (prisma as any).groupParticipant.findMany({ where: { groupId } })
+
+    const stale = all.filter((row: { userJid: string }) => {
+      if (keepSet.has(row.userJid) || keepSet.has(row.userJid.split('@')[0])) {
+        return false
+      }
+
+      // Mantém se for alias (LID/número) de alguém que ainda está no grupo
+      const key = getParticipantDedupeKey(row.userJid, lidMap)
+      return !all.some(
+        (p: { id: string, userJid: string }) =>
+          p.userJid !== row.userJid &&
+          (keepSet.has(p.userJid) || keepSet.has(p.userJid.split('@')[0])) &&
+          getParticipantDedupeKey(p.userJid, lidMap) === key
+      )
+    })
+
+    if (stale.length > 0) {
+      console.log(`[SYNC] Removendo ${stale.length} participantes que saíram do grupo`)
+    }
 
     for (const row of stale) {
       const key = getParticipantDedupeKey(row.userJid, lidMap)
       const canonical = all.find(
         (p: { id: string, userJid: string, roleCode: number }) =>
           p.id !== row.id &&
-          keepSet.has(p.userJid) &&
+          (keepSet.has(p.userJid) || keepSet.has(p.userJid.split('@')[0])) &&
           getParticipantDedupeKey(p.userJid, lidMap) === key
       )
 
       if (canonical) {
         await this.mergeParticipantRecords(canonical.id, row.id)
-        try {
-          await (prisma as any).groupParticipant.delete({ where: { id: row.id } })
-        } catch {
-          // FK restante — não apaga
-        }
-        continue
+      } else {
+        // Saiu de verdade: remove vínculos de rolê/nicho e apaga do grupo
+        await this.purgeParticipantLinks(row.id)
       }
 
-      const roleCount = await (prisma as any).roleParticipation.count({
-        where: { participantId: row.id }
-      })
-      const nicheCount = await (prisma as any).nicheMembership.count({
-        where: { participantId: row.id }
-      })
-
-      if (roleCount === 0 && nicheCount === 0) {
+      try {
         await (prisma as any).groupParticipant.delete({ where: { id: row.id } })
+      } catch (err) {
+        console.warn(`[SYNC] Não foi possível remover participante stale ${row.userJid}:`, err)
       }
     }
   }

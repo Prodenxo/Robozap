@@ -332,13 +332,15 @@ export const handleAdminCommands = async (command: string, args: string[], msg: 
 
   await whatsapp.syncGroupParticipants(msg.remoteJid);
 
+  // Admin do WhatsApp ao vivo (fonte da verdade). Fallback só para cargos
+  // internos do bot (dono/confiável) — NÃO confia em roleCode 3 antigo no banco.
   let hasPermission = await whatsapp.isParticipantAdmin(msg.remoteJid, msg.participant);
 
   if (!hasPermission) {
     hasPermission = await PermissionGuard.canExecute(
       msg.participant,
       msg.remoteJid,
-      PermissionGuard.ROLES.ADM
+      PermissionGuard.ROLES.ADM_CONFIAVEL
     );
   }
 
