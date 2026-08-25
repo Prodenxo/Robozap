@@ -8,6 +8,8 @@ services:
     environment:
       COBALT_API_URL: http://cobalt:9000/
       YOUTUBE_USE_COOKIES: "false"
+      # Mesmo yt-session do Cobalt — yt-dlp usa os tokens PO
+      YOUTUBE_SESSION_SERVER: "http://yt-session:8080"
     depends_on:
       - cobalt
     restart: unless-stopped

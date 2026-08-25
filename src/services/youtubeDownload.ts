@@ -9,10 +9,12 @@ import { hasValidYoutubeCookies } from './youtubeCookies'
 const execAsync = promisify(exec)
 
 const INSTANCE_CACHE_MS = 30 * 60 * 1000
-const BLACKLIST_MS = 20 * 60 * 1000
+const BLACKLIST_MS = 15 * 60 * 1000
+const BLACKLIST_SOFT_MS = 2 * 60 * 1000
 const COBALT_WINNER_CACHE_MS = 45 * 60 * 1000
-const COBALT_PARALLEL_POOL = 8
-const COBALT_REQUEST_TIMEOUT_MS = 18000
+const COBALT_PARALLEL_POOL = 5
+const COBALT_REQUEST_TIMEOUT_MS = 12000
+const PHASE_TIMEOUT_MS = 25000
 const MIN_AUDIO_BYTES = 8 * 1024
 
 const FALLBACK_PIPED_BASES = [
@@ -106,16 +108,17 @@ function isBlacklisted (base: string): boolean {
   return true
 }
 
-function blacklist (base: string, reason: string): void {
+function blacklist (base: string, reason: string, soft = false): void {
   const key = normalizeApiBase(base)
-  instanceBlacklist.set(key, Date.now() + BLACKLIST_MS)
+  const ttl = soft ? BLACKLIST_SOFT_MS : BLACKLIST_MS
+  instanceBlacklist.set(key, Date.now() + ttl)
   if (
     cobaltWinnerCache &&
     normalizeApiBase(cobaltWinnerCache.base) === key
   ) {
     cobaltWinnerCache = null
   }
-  console.warn(`[MEDIA] Blacklist ${key} (${Math.round(BLACKLIST_MS / 60000)}min): ${reason}`)
+  console.warn(`[MEDIA] Blacklist ${key} (${Math.round(ttl / 60000)}min): ${reason}`)
 }
 
 function filterLive (bases: string[]): string[] {
@@ -234,7 +237,26 @@ async function downloadStreamToFile (
   }
 }
 
-async function promiseAny<T> (promises: Array<Promise<T>>): Promise<T> {
+function withTimeout<T> (promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Timeout ${label} (${ms}ms)`))
+    }, ms)
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error: unknown) => {
+        clearTimeout(timer)
+        reject(error)
+      }
+    )
+  })
+}
+
+export async function promiseAny<T> (promises: Array<Promise<T>>): Promise<T> {
   return new Promise((resolve, reject) => {
     const errors: unknown[] = []
     let rejected = 0
@@ -467,7 +489,8 @@ async function attemptCobaltDownload (
   } catch (error: unknown) {
     const message = getAxiosErrorDetail(error)
     if (shouldBlacklistFromError(message) || message.includes('youtube.login') || message.includes('no_session')) {
-      blacklist(base, message)
+      const soft = message.includes('youtube.login') || message.includes('no_session')
+      blacklist(base, message, soft)
     }
     throw error
   } finally {
@@ -522,33 +545,12 @@ async function tryCobaltDownload (url: string, outputPath: string): Promise<void
   const ordered = await resolveCobaltBases()
   if (!ordered.length) throw new Error('Nenhuma instância Cobalt disponível')
 
-  try {
-    await tryCobaltRace(url, outputPath, ordered)
-    return
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.warn('[COBALT] Corrida falhou, tentando sequencial:', message)
-  }
-
-  // Retenta TODAS as bases vivas com outras variantes (não só "remaining")
-  const live = filterLive(ordered)
-  let lastError: Error | null = null
-
-  for (const base of live.slice(0, 12)) {
-    for (const variant of COBALT_REQUEST_VARIANTS.slice(1)) {
-      try {
-        console.log(`[COBALT] Sequencial ${base} (${variant.audioFormat}/${variant.audioBitrate ?? 'best'})`)
-        const winner = await attemptCobaltDownload(url, outputPath, base, variant)
-        cobaltWinnerCache = { base: winner, fetchedAt: Date.now() }
-        console.log(`[COBALT] OK via ${winner}`)
-        return
-      } catch (error: unknown) {
-        lastError = new Error(getAxiosErrorDetail(error))
-      }
-    }
-  }
-
-  throw lastError ?? new Error('Nenhum Cobalt respondeu.')
+  // Só corrida rápida — sem sequencial infinito (era isso que travava 3+ min)
+  await withTimeout(
+    tryCobaltRace(url, outputPath, ordered),
+    PHASE_TIMEOUT_MS,
+    'cobalt'
+  )
 }
 
 // ─── Piped ────────────────────────────────────────────────
@@ -822,8 +824,7 @@ export async function enqueueYouTubeDownload<T> (task: () => Promise<T>): Promis
 }
 
 /**
- * Baixa áudio com múltiplos backends em fases.
- * NÃO aborta cedo por youtube.login — tenta tudo até o fim.
+ * Baixa áudio com timeout duro por fase (~25s max em proxies).
  */
 export async function downloadYouTubeAudioProxy (
   url: string,
@@ -838,12 +839,15 @@ export async function downloadYouTubeAudioProxy (
   const invTemp = uniqueTemp(outputPath, 'phase-inv')
 
   try {
-    // Fase 1: Cobalt + Piped em paralelo
     try {
-      const winner = await promiseAny([
-        tryCobaltDownload(url, cobaltTemp).then(() => 'cobalt' as const),
-        tryPipedRace(videoId, pipedTemp).then(() => 'piped' as const)
-      ])
+      const winner = await withTimeout(
+        promiseAny([
+          tryCobaltDownload(url, cobaltTemp).then(() => 'cobalt' as const),
+          tryPipedRace(videoId, pipedTemp).then(() => 'piped' as const)
+        ]),
+        PHASE_TIMEOUT_MS,
+        'cobalt+piped'
+      )
 
       const source = winner === 'cobalt' ? cobaltTemp : pipedTemp
       const other = winner === 'cobalt' ? pipedTemp : cobaltTemp
@@ -862,12 +866,11 @@ export async function downloadYouTubeAudioProxy (
       for (const item of list) {
         errors.push(item instanceof Error ? item.message : String(item))
       }
-      console.warn('[MEDIA] Fase Cobalt/Piped falhou:', errors.join(' | '))
+      console.warn('[MEDIA] Fase Cobalt/Piped falhou:', errors.slice(0, 3).join(' | '))
     }
 
-    // Fase 2: Invidious em corrida
     try {
-      await tryInvidiousRace(videoId, invTemp)
+      await withTimeout(tryInvidiousRace(videoId, invTemp), 12000, 'invidious')
       moveToOutput(invTemp, outputPath)
       console.log('[MEDIA] Áudio OK via Invidious')
       return
@@ -877,7 +880,7 @@ export async function downloadYouTubeAudioProxy (
       console.warn('[MEDIA] Invidious falhou:', message)
     }
 
-    throw new Error(errors.join(' | ') || 'Falha ao baixar áudio via proxies.')
+    throw new Error(errors.slice(0, 4).join(' | ') || 'Falha ao baixar áudio via proxies.')
   } finally {
     safeUnlink(cobaltTemp)
     safeUnlink(pipedTemp)

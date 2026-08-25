@@ -6,7 +6,7 @@ dotenv.config();
 
 import { probeCobaltHealth } from './services/youtubeDownload';
 
-const MUSIC_BUILD = '2026-08-tocar-resilient-v4';
+const MUSIC_BUILD = '2026-08-tocar-fastfail-v5';
 
 const app = express();
 const PORT = process.env.PORT || 3000;

@@ -444,7 +444,7 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
         if (isYouTubeUrl) {
           candidates = [musicQuery]
         } else {
-          candidates = await media.searchYouTubeCandidates(musicQuery, 5)
+          candidates = await media.searchYouTubeCandidates(musicQuery, 2)
         }
 
         if (candidates.length === 0) {
@@ -453,7 +453,7 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
         }
 
         tempPath = path.join(process.cwd(), `temp_${Date.now()}.mp3`);
-        const downloadTimeoutMs = Number(process.env.MUSIC_DOWNLOAD_TIMEOUT_MS) || 240000;
+        const downloadTimeoutMs = Number(process.env.MUSIC_DOWNLOAD_TIMEOUT_MS) || 90000;
 
         await Promise.race([
           media.downloadMusic(candidates, tempPath),

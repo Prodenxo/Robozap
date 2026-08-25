@@ -7,7 +7,8 @@ import axios from 'axios'
 import {
   downloadYouTubeAudioProxy,
   enqueueYouTubeDownload,
-  extractYouTubeVideoId
+  extractYouTubeVideoId,
+  promiseAny
 } from './youtubeDownload'
 import { ensureYtDlpCookiesFile, shouldUseYoutubeCookies } from './youtubeCookies'
 
@@ -70,7 +71,14 @@ function buildFormatArgs (kind: DownloadKind): string {
 function getStrategies (tokens: { poToken: string, visitorData: string } | null): YtDlpStrategy[] {
   const strategies: YtDlpStrategy[] = []
 
-  // Clientes que costumam funcionar SEM po_token primeiro (mais rápidos)
+  if (tokens?.poToken && tokens?.visitorData) {
+    strategies.push({
+      name: 'po_token+web',
+      extraArgs: `--extractor-args "youtube:player_client=web;po_token=web+${tokens.poToken};visitor_data=${tokens.visitorData}"`
+    })
+  }
+
+  // Poucas estratégias rápidas — sem ficar 7 minutos testando cliente
   strategies.push(
     {
       name: 'android',
@@ -82,29 +90,7 @@ function getStrategies (tokens: { poToken: string, visitorData: string } | null)
     },
     {
       name: 'tv',
-      extraArgs: '--extractor-args "youtube:player_client=tv"'
-    },
-    {
-      name: 'tv_embedded',
-      extraArgs: '--extractor-args "youtube:player_client=tv_embedded"'
-    },
-    {
-      name: 'mweb',
-      extraArgs: '--extractor-args "youtube:player_client=mweb"'
-    }
-  )
-
-  if (tokens?.poToken && tokens?.visitorData) {
-    strategies.unshift({
-      name: 'po_token+web',
-      extraArgs: `--extractor-args "youtube:player_client=web;po_token=web+${tokens.poToken};visitor_data=${tokens.visitorData}"`
-    })
-  }
-
-  strategies.push(
-    {
-      name: 'web_safari',
-      extraArgs: '--extractor-args "youtube:player_client=web_safari"'
+      extraArgs: '--extractor-args "youtube:player_client=tv,tv_embedded"'
     },
     {
       name: 'default',
@@ -230,28 +216,39 @@ export class MediaService {
     return results
   }
 
-  /** Retorna até N URLs candidatas (para retry se o 1º vídeo falhar no download). */
-  async searchYouTubeCandidates (query: string, limit = 5): Promise<string[]> {
+  /** Busca rápida: yt-search primeiro; Piped/Invidious só se precisar. */
+  async searchYouTubeCandidates (query: string, limit = 3): Promise<string[]> {
     const started = Date.now()
     const results: string[] = []
 
-    const [piped, invidious] = await Promise.all([
-      this.searchViaPiped(query, limit),
-      this.searchViaInvidious(query, limit)
-    ])
-
-    for (const url of [...piped, ...invidious]) pushUnique(results, url)
+    try {
+      const yt = await Promise.race([
+        ytSearch(query),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('yt-search timeout')), 8000)
+        )
+      ])
+      for (const video of yt.videos || []) {
+        pushUnique(results, normalizeCandidateUrl(video.url || video.videoId))
+        if (results.length >= limit) break
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn('[YT-SEARCH] yt-search falhou:', message)
+    }
 
     if (results.length < limit) {
-      try {
-        const yt = await ytSearch(query)
-        for (const video of yt.videos || []) {
-          pushUnique(results, normalizeCandidateUrl(video.url || video.videoId))
-          if (results.length >= limit) break
-        }
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error)
-        console.warn('[YT-SEARCH] yt-search falhou:', message)
+      const extras = await Promise.race([
+        Promise.all([
+          this.searchViaPiped(query, limit),
+          this.searchViaInvidious(query, limit)
+        ]).then(([a, b]) => [...a, ...b]),
+        new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 5000))
+      ])
+
+      for (const url of extras) {
+        pushUnique(results, url)
+        if (results.length >= limit) break
       }
     }
 
@@ -290,12 +287,13 @@ export class MediaService {
 
       const command = [
         'yt-dlp',
+        '--js-runtimes', 'deno',
         '--no-playlist',
         '--no-check-certificates',
         '--geo-bypass',
-        '--retries', '3',
-        '--fragment-retries', '3',
-        '--socket-timeout', '20',
+        '--retries', '2',
+        '--fragment-retries', '2',
+        '--socket-timeout', '15',
         proxyArg,
         cookiesArg,
         strategy.extraArgs,
@@ -310,7 +308,7 @@ export class MediaService {
       try {
         await execAsync(command, {
           maxBuffer: 12 * 1024 * 1024,
-          timeout: 90000
+          timeout: 45000
         })
 
         if (kind === 'audio') {
@@ -378,18 +376,16 @@ export class MediaService {
   }
 
   /**
-   * Baixa música com máxima resiliência:
-   * 1) proxies (Cobalt/Piped/Invidious)
-   * 2) yt-dlp
-   * Se receber vários candidatos, tenta o próximo quando o atual falha.
+   * Proxies + yt-dlp em paralelo no 1º candidato.
+   * No máximo 2 candidatos — evita os 3+ minutos de tortura.
    */
   async downloadMusic (
     urlOrCandidates: string | string[],
     outputPath: string
   ): Promise<string> {
-    const candidates = Array.isArray(urlOrCandidates)
+    const candidates = (Array.isArray(urlOrCandidates)
       ? urlOrCandidates
-      : [urlOrCandidates]
+      : [urlOrCandidates]).slice(0, 2)
 
     return enqueueYouTubeDownload(async () => {
       const errors: string[] = []
@@ -398,32 +394,38 @@ export class MediaService {
         const url = candidates[i]
         console.log(`[MEDIA] Candidato ${i + 1}/${candidates.length}: ${url}`)
 
-        try {
-          await downloadYouTubeAudioProxy(url, outputPath)
-          if (fs.existsSync(outputPath) && fs.statSync(outputPath).size >= 8192) {
-            return url
-          }
-        } catch (proxyError: unknown) {
-          const proxyMessage =
-            proxyError instanceof Error ? proxyError.message : String(proxyError)
-          console.error(`[MEDIA] Proxies falharam no candidato ${i + 1}:`, proxyMessage.slice(0, 400))
-          errors.push(`proxy[${i}]: ${proxyMessage}`)
-        }
+        const proxyTemp = `${outputPath}.proxy.${i}.tmp`
+        const ytdlpTemp = `${outputPath}.ytdlp.${i}.tmp`
 
         try {
-          console.log(`[MEDIA] Fallback yt-dlp no candidato ${i + 1}...`)
-          await this.runYtDlp(url, outputPath, 'audio')
-          if (fs.existsSync(outputPath) && fs.statSync(outputPath).size >= 8192) {
-            return url
-          }
-        } catch (ytdlpError: unknown) {
-          const message =
-            ytdlpError instanceof Error ? ytdlpError.message : String(ytdlpError)
-          console.error(`[MEDIA] yt-dlp falhou no candidato ${i + 1}:`, message.slice(0, 400))
-          errors.push(`ytdlp[${i}]: ${message}`)
-        }
+          const winner = await promiseAny([
+            downloadYouTubeAudioProxy(url, proxyTemp)
+              .then(() => 'proxy' as const),
+            this.runYtDlp(url, ytdlpTemp, 'audio')
+              .then(() => 'ytdlp' as const)
+          ])
 
-        safeUnlink(outputPath)
+          const source = winner === 'proxy' ? proxyTemp : ytdlpTemp
+          const other = winner === 'proxy' ? ytdlpTemp : proxyTemp
+
+          if (!fs.existsSync(source) || fs.statSync(source).size < 8192) {
+            throw new Error('Arquivo inválido após download')
+          }
+
+          if (fs.existsSync(outputPath)) safeUnlink(outputPath)
+          fs.renameSync(source, outputPath)
+          safeUnlink(other)
+          console.log(`[MEDIA] Áudio OK via ${winner} (candidato ${i + 1})`)
+          return url
+        } catch (error: unknown) {
+          safeUnlink(proxyTemp)
+          safeUnlink(ytdlpTemp)
+          safeUnlink(outputPath)
+
+          const message = error instanceof Error ? error.message : String(error)
+          console.error(`[MEDIA] Candidato ${i + 1} falhou:`, message.slice(0, 400))
+          errors.push(`c${i}: ${message}`)
+        }
       }
 
       const joined = errors.join(' | ')
