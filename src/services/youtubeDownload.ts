@@ -1,506 +1,442 @@
-import axios from "axios";
-import { exec } from "child_process";
-import { createWriteStream } from "fs";
-import fs from "fs";
-import { promisify } from "util";
-import { pipeline } from "stream/promises";
-import { hasValidYoutubeCookies } from "./youtubeCookies";
+import axios from 'axios'
+import { exec } from 'child_process'
+import { createWriteStream } from 'fs'
+import fs from 'fs'
+import { promisify } from 'util'
+import { pipeline } from 'stream/promises'
+import { hasValidYoutubeCookies } from './youtubeCookies'
 
-const execAsync = promisify(exec);
+const execAsync = promisify(exec)
 
-const INSTANCE_CACHE_MS = 60 * 60 * 1000;
+const INSTANCE_CACHE_MS = 30 * 60 * 1000
+const BLACKLIST_MS = 20 * 60 * 1000
+const COBALT_WINNER_CACHE_MS = 45 * 60 * 1000
+const COBALT_PARALLEL_POOL = 8
+const COBALT_REQUEST_TIMEOUT_MS = 18000
+const MIN_AUDIO_BYTES = 8 * 1024
 
 const FALLBACK_PIPED_BASES = [
-  "https://api.piped.private.coffee",
-  "https://piped-api.lunar.icu",
-  "https://piped-api.cfe.re",
-  "https://ytapi.dc09.ru",
-  "https://yapi.vyper.me",
-  "https://pipedapi.colinslegacy.com",
-  "https://pipedapi.rivo.lol",
-  "https://pipedapi.leptons.xyz",
-  "https://piped-api.garudalinux.org",
-  "https://pipedapi.in.projectsegfau.lt",
-  "https://pipedapi.tokhmi.xyz",
-  "https://pipedapi.moomoo.me",
-  "https://api-piped.mha.fi",
-  "https://pipedapi.syncpundit.io",
-  "https://pipedapi.kavin.rocks",
-];
+  'https://pipedapi.kavin.rocks',
+  'https://pipedapi.syncpundit.io',
+  'https://api-piped.mha.fi',
+  'https://pipedapi.tokhmi.xyz',
+  'https://piped-api.lunar.icu',
+  'https://pipedapi.adminforge.de',
+  'https://pipedapi.nosebs.ru',
+  'https://pipedapi.ducks.party',
+  'https://api.piped.private.coffee',
+  'https://pipedapi.reallyaweso.me'
+]
 
 const FALLBACK_INVIDIOUS_BASES = [
-  "https://inv.nadeko.net",
-  "https://invidious.nerdvpn.de",
-  "https://invidious.projectsegfau.lt",
-  "https://invidious.privacydev.net",
-  "https://invidious.lunar.icu",
-];
+  'https://inv.nadeko.net',
+  'https://invidious.nerdvpn.de',
+  'https://yewtu.be',
+  'https://invidious.fdn.fr',
+  'https://vid.puffyan.us',
+  'https://invidious.privacyredirect.com',
+  'https://inv.tux.pizza'
+]
 
-let pipedInstancesCache: { urls: string[]; fetchedAt: number } | null = null;
-let cobaltWinnerCache: { base: string; fetchedAt: number } | null = null;
-const COBALT_WINNER_CACHE_MS = 60 * 60 * 1000;
-const COBALT_PARALLEL_POOL = 6;
-const COBALT_REQUEST_TIMEOUT_MS = 22000;
+const FALLBACK_COBALT_PUBLIC = [
+  'https://api.cobalt.best',
+  'https://cobalt-backend.canine.tools',
+  'https://api.cobalt.liubquanti.click',
+  'https://api.qwkuns.me',
+  'https://api.cobalt.blackcat.sweeux.org',
+  'https://fox.kittycat.boo',
+  'https://dog.kittycat.boo',
+  'https://co.wuk.sh',
+  'https://cobalt-api.kwiatekmieniany.pl',
+  'https://api.cobalt.solidsoftware.dev'
+]
 
-/** Instâncias que exigem JWT — só entram se COBALT_API_KEY estiver setado. */
 const COBALT_JWT_BASES = new Set([
   'https://subito-c.meowing.de',
   'https://cobalt.omega.wolfy.love',
   'https://grapefruit.clxxped.lol',
   'https://nuko-c.meowing.de',
   'https://lime.clxxped.lol'
-]);
+])
 
-export function extractYouTubeVideoId(url: string): string | null {
+let pipedInstancesCache: { urls: string[], fetchedAt: number } | null = null
+let cobaltInstancesCache: { urls: string[], fetchedAt: number } | null = null
+let cobaltWinnerCache: { base: string, fetchedAt: number } | null = null
+const instanceBlacklist = new Map<string, number>()
+
+export function extractYouTubeVideoId (url: string): string | null {
   const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/,
-    /^([a-zA-Z0-9_-]{11})$/,
-  ];
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/|music\.youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/,
+    /^([a-zA-Z0-9_-]{11})$/
+  ]
 
   for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match?.[1]) return match[1];
+    const match = url.match(pattern)
+    if (match?.[1]) return match[1]
   }
 
-  return null;
+  return null
 }
 
-function envList(envKey: string): string[] {
-  return (process.env[envKey] ?? "")
-    .split(",")
-    .map((value) => value.trim().replace(/\/$/, ""))
-    .filter(Boolean);
+function envList (envKey: string): string[] {
+  return (process.env[envKey] ?? '')
+    .split(',')
+    .map((value) => value.trim().replace(/\/$/, ''))
+    .filter(Boolean)
 }
 
-function uniqueBases(bases: string[]): string[] {
-  return [...new Set(bases.map((base) => normalizeApiBase(base)))];
+function normalizeApiBase (base: string): string {
+  const trimmed = base.trim().replace(/\/+$/, '')
+  if (!trimmed) return trimmed
+  return trimmed.includes('://') ? trimmed : `https://${trimmed}`
 }
 
-function normalizeApiBase(base: string): string {
-  const trimmed = base.trim().replace(/\/+$/, "");
-  if (!trimmed) return trimmed;
-  return trimmed.includes("://") ? trimmed : `https://${trimmed}`;
+function uniqueBases (bases: string[]): string[] {
+  return [...new Set(bases.map((base) => normalizeApiBase(base)).filter(Boolean))]
 }
 
-function buildPipedStreamsUrl(base: string, videoId: string): string {
-  return `${normalizeApiBase(base)}/streams/${videoId}`;
+function isBlacklisted (base: string): boolean {
+  const key = normalizeApiBase(base)
+  const until = instanceBlacklist.get(key)
+  if (!until) return false
+  if (Date.now() > until) {
+    instanceBlacklist.delete(key)
+    return false
+  }
+  return true
 }
 
-function normalizeYoutubeWatchUrl(url: string): string {
-  const videoId = extractYouTubeVideoId(url);
-  if (!videoId) return url;
-  return `https://www.youtube.com/watch?v=${videoId}`;
+function blacklist (base: string, reason: string): void {
+  const key = normalizeApiBase(base)
+  instanceBlacklist.set(key, Date.now() + BLACKLIST_MS)
+  if (
+    cobaltWinnerCache &&
+    normalizeApiBase(cobaltWinnerCache.base) === key
+  ) {
+    cobaltWinnerCache = null
+  }
+  console.warn(`[MEDIA] Blacklist ${key} (${Math.round(BLACKLIST_MS / 60000)}min): ${reason}`)
 }
 
-function getAxiosErrorDetail(error: unknown): string {
+function filterLive (bases: string[]): string[] {
+  return bases.filter((base) => !isBlacklisted(base))
+}
+
+function shellQuote (value: string): string {
+  return `"${value.replace(/"/g, '\\"')}"`
+}
+
+function normalizeYoutubeWatchUrl (url: string): string {
+  const videoId = extractYouTubeVideoId(url)
+  if (!videoId) return url
+  return `https://www.youtube.com/watch?v=${videoId}`
+}
+
+function getAxiosErrorDetail (error: unknown): string {
   if (!axios.isAxiosError(error)) {
-    return error instanceof Error ? error.message : String(error);
+    return error instanceof Error ? error.message : String(error)
   }
 
   const apiError = error.response?.data as
-    | {
-        status?: string;
-        error?: { code?: string };
-      }
-    | undefined;
+    | { status?: string, error?: { code?: string } }
+    | undefined
 
-  if (apiError?.error?.code) {
-    return apiError.error.code;
-  }
-
-  if (apiError && typeof apiError === "object") {
-    return JSON.stringify(apiError);
-  }
-
-  return error.message;
+  if (apiError?.error?.code) return apiError.error.code
+  if (apiError && typeof apiError === 'object') return JSON.stringify(apiError)
+  return error.message
 }
 
-function shellQuote(value: string): string {
-  return `"${value.replace(/"/g, '\\"')}"`;
-}
-
-function pickExtension(mimeType?: string): string {
-  if (!mimeType) return ".webm";
-  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return ".mp3";
-  if (mimeType.includes("mp4") || mimeType.includes("m4a")) return ".m4a";
-  return ".webm";
-}
-
-async function convertToMp3(
-  inputPath: string,
-  outputPath: string,
-): Promise<void> {
-  const command = `ffmpeg -y -i ${shellQuote(inputPath)} -vn -acodec libmp3lame -q:a 0 ${shellQuote(outputPath)}`;
-  await execAsync(command);
-  if (inputPath !== outputPath && fs.existsSync(inputPath)) {
-    fs.unlinkSync(inputPath);
-  }
-}
-
-async function downloadStreamToFile(
-  streamUrl: string,
-  outputPath: string,
-  mimeType?: string,
-  referer?: string,
-  extraHeaders?: Record<string, string>,
-): Promise<void> {
-  const rawExt = pickExtension(mimeType);
-  const wantsMp3 = outputPath.toLowerCase().endsWith(".mp3");
-  const rawPath =
-    wantsMp3 && rawExt !== ".mp3"
-      ? outputPath.replace(/\.mp3$/i, `_raw${rawExt}`)
-      : outputPath;
-
-  const response = await axios.get(streamUrl, {
-    responseType: "stream",
-    timeout: 180000,
-    maxContentLength: Infinity,
-    maxBodyLength: Infinity,
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      Accept: "*/*",
-      ...(referer ? { Referer: referer } : {}),
-      ...(extraHeaders ?? {}),
-    },
-  });
-
-  await pipeline(response.data, createWriteStream(rawPath));
-
-  if (!fs.existsSync(rawPath) || fs.statSync(rawPath).size === 0) {
-    throw new Error("Download vazio ou corrompido.");
-  }
-
-  if (wantsMp3 && rawPath !== outputPath) {
-    await convertToMp3(rawPath, outputPath);
-    return;
-  }
-
-  if (rawPath !== outputPath) {
-    fs.renameSync(rawPath, outputPath);
-  }
-}
-
-async function fetchHealthyPipedInstances(): Promise<string[]> {
-  const now = Date.now();
-  if (
-    pipedInstancesCache &&
-    now - pipedInstancesCache.fetchedAt < INSTANCE_CACHE_MS
-  ) {
-    return pipedInstancesCache.urls;
-  }
-
-  const urls: string[] = [];
-
-  try {
-    const { data } = await axios.get("https://piped-instances.kavin.rocks/", {
-      timeout: 12000,
-    });
-
-    if (Array.isArray(data)) {
-      for (const item of data) {
-        const apiUrl = item?.api_url ?? item?.api;
-        const uptime = Number(item?.uptime_24h ?? item?.uptime ?? 100);
-        if (typeof apiUrl === "string" && uptime >= 80) {
-          urls.push(apiUrl.replace(/\/$/, ""));
-        }
-      }
-    }
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn("[PIPED] Lista dinâmica indisponível:", message);
-  }
-
-  pipedInstancesCache = {
-    urls: uniqueBases(urls).slice(0, 20),
-    fetchedAt: now,
-  };
-
-  return pipedInstancesCache.urls;
-}
-
-async function resolvePipedBases(): Promise<string[]> {
-  const dynamic = await fetchHealthyPipedInstances();
-  return uniqueBases([
-    ...envList("PIPED_API_URL"),
-    ...dynamic,
-    ...FALLBACK_PIPED_BASES,
-  ]);
-}
-
-interface PipedAudioStream {
-  url: string;
-  bitrate?: number;
-  mimeType?: string;
-}
-
-async function fetchPipedAudioStream(
-  base: string,
-  videoId: string,
-  signal?: AbortSignal,
-): Promise<PipedAudioStream> {
-  const { data } = await axios.get(buildPipedStreamsUrl(base, videoId), {
-    timeout: 18000,
-    signal,
-    headers: { "User-Agent": "robozap/1.0" },
-  });
-
-  const streams = (data?.audioStreams ?? []) as PipedAudioStream[];
-  if (!streams.length) {
-    throw new Error("sem áudio");
-  }
-
-  return [...streams].sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
-}
-
-async function tryPipedRace(
-  videoId: string,
-  outputPath: string,
-): Promise<void> {
-  const bases = await resolvePipedBases();
-  const pool = bases.slice(0, 8);
-  const abort = new AbortController();
-  let lastError: Error | null = null;
-
-  await new Promise<void>((resolve, reject) => {
-    let pending = pool.length;
-    let settled = false;
-    if (pending === 0) {
-      reject(new Error("Nenhuma instância Piped configurada."));
-      return;
-    }
-
-    for (const base of pool) {
-      void (async () => {
-        const tempPath = `${outputPath}.piped.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.part`;
-        try {
-          console.log(`[PIPED] Tentando ${base} — vídeo ${videoId}`);
-          const stream = await fetchPipedAudioStream(
-            base,
-            videoId,
-            abort.signal,
-          );
-          if (abort.signal.aborted || settled) return;
-
-          await downloadStreamToFile(
-            stream.url,
-            tempPath,
-            stream.mimeType,
-            base,
-          );
-
-          if (abort.signal.aborted || settled) return;
-          if (!fs.existsSync(tempPath) || fs.statSync(tempPath).size < 1024) {
-            throw new Error("Download vazio ou corrompido.");
-          }
-
-          settled = true;
-          abort.abort();
-          fs.renameSync(tempPath, outputPath);
-          console.log(`[PIPED] Sucesso via ${base}`);
-          resolve();
-        } catch (error: unknown) {
-          if (fs.existsSync(tempPath)) {
-            try { fs.unlinkSync(tempPath); } catch { /* ignore */ }
-          }
-          if (abort.signal.aborted || settled) return;
-
-          const code = (error as { code?: string })?.code;
-          const message =
-            error instanceof Error ? error.message : String(error);
-          console.warn(`[PIPED] Falha em ${base} (code: ${code}): ${message}`);
-          lastError = error instanceof Error ? error : new Error(message);
-
-          pending -= 1;
-          if (pending === 0) {
-            reject(
-              lastError ?? new Error("Nenhuma instância Piped respondeu."),
-            );
-          }
-        }
-      })();
-    }
-  });
-}
-
-interface CobaltResponse {
-  status: string;
-  url?: string;
-  error?: { code?: string };
-}
-
-function resolveCobaltBases(): string[] {
-  const fromEnv = envList('COBALT_API_URL')
-  const extraPublic = envList('COBALT_PUBLIC_URL')
-
-  const publicBases = [
-    'https://api.cobalt.liubquanti.click',
-    'https://api.qwkuns.me',
-    'https://api.cobalt.blackcat.sweeux.org',
-    'https://fox.kittycat.boo',
-    'https://dog.kittycat.boo',
-    'https://apicobalt.mgytr.top',
-    'https://subito-c.meowing.de',
-    'https://cobalt.omega.wolfy.love',
-    'https://grapefruit.clxxped.lol',
-    'https://nuko-c.meowing.de',
-    'https://lime.clxxped.lol'
-  ]
-
-  const hasApiKey = Boolean(process.env.COBALT_API_KEY?.trim())
-  const openPublic = publicBases.filter(
-    (base) => hasApiKey || !COBALT_JWT_BASES.has(normalizeApiBase(base))
-  )
-
-  const localBases = fromEnv.length ? fromEnv : ['http://cobalt:9000']
-  const hasSession = Boolean(process.env.YOUTUBE_SESSION_SERVER?.trim())
-  const useLocalFirst = hasValidYoutubeCookies() || hasSession
-
-  let ordered = useLocalFirst
-    ? uniqueBases([...extraPublic, ...localBases, ...openPublic])
-    : uniqueBases([...extraPublic, ...openPublic, ...localBases])
-
-  if (
-    cobaltWinnerCache &&
-    Date.now() - cobaltWinnerCache.fetchedAt < COBALT_WINNER_CACHE_MS
-  ) {
-    ordered = uniqueBases([cobaltWinnerCache.base, ...ordered])
-    console.log(`[COBALT] Priorizando instância que funcionou: ${cobaltWinnerCache.base}`)
-  }
-
-  if (!useLocalFirst) {
-    console.log('[COBALT] Modo sem cookies — priorizando instâncias públicas')
-  }
-
-  return ordered
-}
-
-function rememberCobaltWinner (base: string): void {
-  cobaltWinnerCache = { base: normalizeApiBase(base), fetchedAt: Date.now() }
-}
-
-function isFastFailCobaltError (message: string): boolean {
+function shouldBlacklistFromError (message: string): boolean {
   const lower = message.toLowerCase()
   return (
     lower.includes('jwt.missing') ||
     lower.includes('auth.jwt') ||
-    lower.includes('enoent') ||
     lower.includes('enotfound') ||
     lower.includes('econnrefused') ||
+    lower.includes('certificate') ||
     lower.includes('status code 521') ||
-    lower.includes('status code 502')
+    lower.includes('status code 502') ||
+    lower.includes('status code 503') ||
+    lower.includes('status code 403') ||
+    lower.includes('cloudflare') ||
+    lower.includes('origin_bad_gateway')
   )
 }
 
-function getCobaltAuthHeaders(): Record<string, string> {
-  const apiKey = process.env.COBALT_API_KEY?.trim();
-  if (!apiKey) return {};
-  return { Authorization: `Api-Key ${apiKey}` };
+function pickExtension (mimeType?: string): string {
+  if (!mimeType) return '.webm'
+  if (mimeType.includes('mpeg') || mimeType.includes('mp3')) return '.mp3'
+  if (mimeType.includes('mp4') || mimeType.includes('m4a')) return '.m4a'
+  if (mimeType.includes('ogg') || mimeType.includes('opus')) return '.ogg'
+  return '.webm'
 }
 
-interface CobaltRequestBody {
-  url: string;
-  downloadMode: "audio";
-  audioFormat?: "mp3" | "best" | "opus" | "ogg";
-  audioBitrate?: string;
-  youtubeBetterAudio?: boolean;
+function assertAudioFile (filePath: string): void {
+  if (!fs.existsSync(filePath) || fs.statSync(filePath).size < MIN_AUDIO_BYTES) {
+    throw new Error('Download vazio ou corrompido.')
+  }
 }
 
-async function requestCobaltAudio(
-  base: string,
-  youtubeUrl: string,
-  bodyOverrides: Partial<CobaltRequestBody> = {},
-): Promise<{ downloadUrl: string; base: string }> {
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    ...getCobaltAuthHeaders(),
-  };
+async function convertToMp3 (inputPath: string, outputPath: string): Promise<void> {
+  const command = [
+    'ffmpeg -y -hide_banner -loglevel error',
+    `-i ${shellQuote(inputPath)}`,
+    '-vn -acodec libmp3lame -q:a 0',
+    shellQuote(outputPath)
+  ].join(' ')
 
-  const endpoint = `${normalizeApiBase(base)}/`;
-  const normalizedUrl = normalizeYoutubeWatchUrl(youtubeUrl);
+  await execAsync(command, { timeout: 120000 })
+  assertAudioFile(outputPath)
 
-  const body: CobaltRequestBody = {
-    url: normalizedUrl,
-    downloadMode: "audio",
-    audioFormat: "mp3",
-    audioBitrate: "320",
-    youtubeBetterAudio: true,
-    ...bodyOverrides,
-  };
-
-  const { data } = await axios.post<CobaltResponse>(endpoint, body, {
-    headers,
-    timeout: COBALT_REQUEST_TIMEOUT_MS,
-  });
-
-  if (data.status === "error") {
-    throw new Error(data.error?.code ?? "erro cobalt");
+  if (inputPath !== outputPath && fs.existsSync(inputPath)) {
+    fs.unlinkSync(inputPath)
   }
-
-  if (!data.url || !["tunnel", "redirect"].includes(data.status)) {
-    throw new Error(`resposta cobalt inválida: ${data.status}`);
-  }
-
-  let downloadUrl = data.url;
-  if (!downloadUrl.startsWith("http")) {
-    downloadUrl = `${normalizeApiBase(base)}${downloadUrl.startsWith("/") ? "" : "/"}${downloadUrl}`;
-  }
-
-  const cobaltBase = normalizeApiBase(base);
-  if (downloadUrl.includes("127.0.0.1") || downloadUrl.includes("localhost")) {
-    downloadUrl = downloadUrl
-      .replace(/https?:\/\/127\.0\.0\.1:\d+/g, cobaltBase)
-      .replace(/https?:\/\/localhost:\d+/g, cobaltBase);
-  }
-
-  return { downloadUrl, base: cobaltBase };
 }
 
-async function promiseAny<T>(promises: Array<Promise<T>>): Promise<T> {
+async function downloadStreamToFile (
+  streamUrl: string,
+  outputPath: string,
+  mimeType?: string,
+  referer?: string,
+  extraHeaders?: Record<string, string>
+): Promise<void> {
+  const rawExt = pickExtension(mimeType)
+  const wantsMp3 = outputPath.toLowerCase().endsWith('.mp3')
+  const rawPath =
+    wantsMp3 && rawExt !== '.mp3'
+      ? `${outputPath}.raw${rawExt}`
+      : outputPath
+
+  const response = await axios.get(streamUrl, {
+    responseType: 'stream',
+    timeout: 120000,
+    maxContentLength: Infinity,
+    maxBodyLength: Infinity,
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      Accept: '*/*',
+      ...(referer ? { Referer: referer } : {}),
+      ...(extraHeaders ?? {})
+    }
+  })
+
+  await pipeline(response.data, createWriteStream(rawPath))
+  assertAudioFile(rawPath)
+
+  if (wantsMp3 && rawPath !== outputPath) {
+    await convertToMp3(rawPath, outputPath)
+    return
+  }
+
+  if (rawPath !== outputPath) {
+    fs.renameSync(rawPath, outputPath)
+  }
+}
+
+async function promiseAny<T> (promises: Array<Promise<T>>): Promise<T> {
   return new Promise((resolve, reject) => {
-    const errors: unknown[] = [];
-    let rejected = 0;
+    const errors: unknown[] = []
+    let rejected = 0
+    let settled = false
 
     if (promises.length === 0) {
-      reject(
-        Object.assign(new Error("Nenhuma promise fornecida."), { errors: [] }),
-      );
-      return;
+      reject(Object.assign(new Error('Nenhuma promise fornecida.'), { errors: [] }))
+      return
     }
 
     for (const promise of promises) {
-      void Promise.resolve(promise).then(resolve, (error: unknown) => {
-        errors.push(error);
-        rejected += 1;
-        if (rejected === promises.length) {
-          reject(
-            Object.assign(new Error("Todas as promises falharam."), { errors }),
-          );
+      void Promise.resolve(promise).then(
+        (value) => {
+          if (settled) return
+          settled = true
+          resolve(value)
+        },
+        (error: unknown) => {
+          errors.push(error)
+          rejected += 1
+          if (!settled && rejected === promises.length) {
+            reject(Object.assign(new Error('Todas as promises falharam.'), { errors }))
+          }
         }
-      });
+      )
     }
-  });
+  })
 }
 
-function isYoutubeBlockError(message: string): boolean {
-  const lower = message.toLowerCase();
-  return (
-    lower.includes("youtube.login") ||
-    lower.includes("youtube.api_error") ||
-    lower.includes("no_session_tokens") ||
-    lower.includes("error.api.youtube") ||
-    lower.includes("sign in") ||
-    lower.includes("confirm you") ||
-    lower.includes("not a bot")
-  );
+function uniqueTemp (basePath: string, tag: string): string {
+  return `${basePath}.${tag}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.part`
+}
+
+function safeUnlink (filePath: string): void {
+  if (fs.existsSync(filePath)) {
+    try { fs.unlinkSync(filePath) } catch { /* ignore */ }
+  }
+}
+
+function moveToOutput (source: string, outputPath: string): void {
+  assertAudioFile(source)
+  if (fs.existsSync(outputPath)) safeUnlink(outputPath)
+  fs.renameSync(source, outputPath)
+}
+
+// ─── Cobalt ───────────────────────────────────────────────
+
+interface CobaltResponse {
+  status: string
+  url?: string
+  error?: { code?: string }
+}
+
+interface CobaltRequestBody {
+  url: string
+  downloadMode: 'audio'
+  audioFormat?: 'mp3' | 'best' | 'opus' | 'ogg'
+  audioBitrate?: string
+  youtubeBetterAudio?: boolean
 }
 
 const COBALT_REQUEST_VARIANTS: Array<Partial<CobaltRequestBody>> = [
-  { audioFormat: 'mp3', audioBitrate: '320', youtubeBetterAudio: true },
+  { audioFormat: 'mp3', audioBitrate: '128', youtubeBetterAudio: false },
+  { audioFormat: 'mp3', audioBitrate: '192', youtubeBetterAudio: true },
   { audioFormat: 'best', youtubeBetterAudio: true },
-  { audioFormat: 'mp3', audioBitrate: '192', youtubeBetterAudio: false }
+  { audioFormat: 'mp3', audioBitrate: '320', youtubeBetterAudio: false }
 ]
+
+function getCobaltAuthHeaders (): Record<string, string> {
+  const apiKey = process.env.COBALT_API_KEY?.trim()
+  if (!apiKey) return {}
+  return { Authorization: `Api-Key ${apiKey}` }
+}
+
+async function fetchDynamicCobaltInstances (): Promise<string[]> {
+  const now = Date.now()
+  if (cobaltInstancesCache && now - cobaltInstancesCache.fetchedAt < INSTANCE_CACHE_MS) {
+    return cobaltInstancesCache.urls
+  }
+
+  const urls: string[] = []
+  const feeds = [
+    'https://instances.cobalt.best/api/instances.json',
+    'https://cobalt.directory/api/instances'
+  ]
+
+  for (const feed of feeds) {
+    try {
+      const { data } = await axios.get(feed, { timeout: 10000 })
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.instances)
+          ? data.instances
+          : []
+
+      for (const item of list) {
+        const api =
+          item?.api ??
+          item?.api_url ??
+          item?.url ??
+          item?.apiUrl ??
+          (typeof item === 'string' ? item : null)
+
+        if (typeof api === 'string' && api.startsWith('http')) {
+          urls.push(api.replace(/\/$/, ''))
+        }
+      }
+
+      if (urls.length > 0) break
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[COBALT] Feed ${feed} indisponível: ${message}`)
+    }
+  }
+
+  cobaltInstancesCache = {
+    urls: uniqueBases(urls).slice(0, 25),
+    fetchedAt: now
+  }
+
+  return cobaltInstancesCache.urls
+}
+
+async function resolveCobaltBases (): Promise<string[]> {
+  const fromEnv = envList('COBALT_API_URL')
+  const extraPublic = envList('COBALT_PUBLIC_URL')
+  const dynamic = await fetchDynamicCobaltInstances()
+  const hasApiKey = Boolean(process.env.COBALT_API_KEY?.trim())
+
+  const publicBases = uniqueBases([
+    ...extraPublic,
+    ...dynamic,
+    ...FALLBACK_COBALT_PUBLIC
+  ]).filter((base) => hasApiKey || !COBALT_JWT_BASES.has(normalizeApiBase(base)))
+
+  const localBases = fromEnv.length ? fromEnv : ['http://cobalt:9000']
+
+  // Local NÃO vai no topo só porque YOUTUBE_SESSION_SERVER existe —
+  // session quebrada atrasa tudo. Público + winner primeiro.
+  let ordered = uniqueBases([...publicBases, ...localBases])
+
+  if (hasValidYoutubeCookies()) {
+    ordered = uniqueBases([...localBases, ...publicBases])
+  }
+
+  if (
+    cobaltWinnerCache &&
+    Date.now() - cobaltWinnerCache.fetchedAt < COBALT_WINNER_CACHE_MS &&
+    !isBlacklisted(cobaltWinnerCache.base)
+  ) {
+    ordered = uniqueBases([cobaltWinnerCache.base, ...ordered])
+  }
+
+  return filterLive(ordered)
+}
+
+async function requestCobaltAudio (
+  base: string,
+  youtubeUrl: string,
+  bodyOverrides: Partial<CobaltRequestBody> = {}
+): Promise<{ downloadUrl: string, base: string }> {
+  const endpoint = `${normalizeApiBase(base)}/`
+  const body: CobaltRequestBody = {
+    url: normalizeYoutubeWatchUrl(youtubeUrl),
+    downloadMode: 'audio',
+    audioFormat: 'mp3',
+    audioBitrate: '128',
+    youtubeBetterAudio: false,
+    ...bodyOverrides
+  }
+
+  const { data } = await axios.post<CobaltResponse>(endpoint, body, {
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...getCobaltAuthHeaders()
+    },
+    timeout: COBALT_REQUEST_TIMEOUT_MS
+  })
+
+  if (data.status === 'error') {
+    throw new Error(data.error?.code ?? 'erro cobalt')
+  }
+
+  if (!data.url || !['tunnel', 'redirect'].includes(data.status)) {
+    throw new Error(`resposta cobalt inválida: ${data.status}`)
+  }
+
+  let downloadUrl = data.url
+  if (!downloadUrl.startsWith('http')) {
+    downloadUrl = `${normalizeApiBase(base)}${downloadUrl.startsWith('/') ? '' : '/'}${downloadUrl}`
+  }
+
+  const cobaltBase = normalizeApiBase(base)
+  if (downloadUrl.includes('127.0.0.1') || downloadUrl.includes('localhost')) {
+    downloadUrl = downloadUrl
+      .replace(/https?:\/\/127\.0\.0\.1:\d+/g, cobaltBase)
+      .replace(/https?:\/\/localhost:\d+/g, cobaltBase)
+  }
+
+  return { downloadUrl, base: cobaltBase }
+}
 
 async function attemptCobaltDownload (
   url: string,
@@ -511,8 +447,7 @@ async function attemptCobaltDownload (
 ): Promise<string> {
   if (signal?.aborted) throw new Error('abort')
 
-  // Arquivo temporário por tentativa — evita corrida corrompendo o MP3 final
-  const tempPath = `${outputPath}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.part`
+  const tempPath = uniqueTemp(outputPath, 'cobalt')
 
   try {
     const { downloadUrl } = await requestCobaltAudio(base, url, variant)
@@ -527,37 +462,33 @@ async function attemptCobaltDownload (
     )
 
     if (signal?.aborted) throw new Error('abort')
-
-    if (!fs.existsSync(tempPath) || fs.statSync(tempPath).size < 1024) {
-      throw new Error('Download vazio ou corrompido.')
-    }
-
-    fs.renameSync(tempPath, outputPath)
+    moveToOutput(tempPath, outputPath)
     return normalizeApiBase(base)
-  } finally {
-    if (fs.existsSync(tempPath)) {
-      try { fs.unlinkSync(tempPath) } catch { /* ignore */ }
+  } catch (error: unknown) {
+    const message = getAxiosErrorDetail(error)
+    if (shouldBlacklistFromError(message) || message.includes('youtube.login') || message.includes('no_session')) {
+      blacklist(base, message)
     }
+    throw error
+  } finally {
+    safeUnlink(tempPath)
   }
 }
 
-async function tryCobaltRace (
-  url: string,
-  outputPath: string,
-  bases: string[]
-): Promise<void> {
+async function tryCobaltRace (url: string, outputPath: string, bases: string[]): Promise<void> {
   const pool = bases.slice(0, COBALT_PARALLEL_POOL)
   const variant = COBALT_REQUEST_VARIANTS[0]
   const abort = new AbortController()
   let lastError: Error | null = null
 
-  console.log(`[COBALT] Corrida paralela em ${pool.length} instâncias (qualidade alta)`)
+  console.log(`[COBALT] Corrida em ${pool.length} instâncias`)
 
   await new Promise<void>((resolve, reject) => {
     let pending = pool.length
     let settled = false
+
     if (pending === 0) {
-      reject(new Error('Nenhuma instância Cobalt configurada.'))
+      reject(new Error('Nenhuma instância Cobalt disponível.'))
       return
     }
 
@@ -567,257 +498,389 @@ async function tryCobaltRace (
           if (settled) return
           settled = true
           abort.abort()
-          rememberCobaltWinner(winner)
-          console.log(`[COBALT] Download concluído via ${winner}`)
+          cobaltWinnerCache = { base: winner, fetchedAt: Date.now() }
+          console.log(`[COBALT] OK via ${winner}`)
           resolve()
         })
         .catch((error: unknown) => {
           if (abort.signal.aborted || settled) return
-
           const message = getAxiosErrorDetail(error)
-          if (!isFastFailCobaltError(message)) {
-            console.warn(`[COBALT] Falha em ${base}: ${message}`)
+          if (!shouldBlacklistFromError(message)) {
+            console.warn(`[COBALT] Falha ${base}: ${message}`)
           }
           lastError = new Error(message)
-
           pending -= 1
           if (pending === 0) {
-            reject(lastError ?? new Error('Nenhuma instância Cobalt respondeu na corrida.'))
+            reject(lastError ?? new Error('Corrida Cobalt falhou.'))
           }
         })
     }
   })
 }
 
-async function tryCobaltDownload(
-  url: string,
-  outputPath: string,
-  bases?: string[],
-): Promise<void> {
-  const ordered = bases ?? resolveCobaltBases()
-
-  if (!ordered.length) {
-    throw new Error('COBALT_API_URL não configurado')
-  }
+async function tryCobaltDownload (url: string, outputPath: string): Promise<void> {
+  const ordered = await resolveCobaltBases()
+  if (!ordered.length) throw new Error('Nenhuma instância Cobalt disponível')
 
   try {
     await tryCobaltRace(url, outputPath, ordered)
     return
-  } catch (raceError: unknown) {
-    const raceMessage = raceError instanceof Error ? raceError.message : String(raceError)
-    console.warn('[COBALT] Corrida paralela falhou, tentando sequencial:', raceMessage)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn('[COBALT] Corrida falhou, tentando sequencial:', message)
   }
 
-  const remaining = ordered.slice(COBALT_PARALLEL_POOL)
+  // Retenta TODAS as bases vivas com outras variantes (não só "remaining")
+  const live = filterLive(ordered)
   let lastError: Error | null = null
 
-  for (const base of remaining) {
-    for (const variant of COBALT_REQUEST_VARIANTS) {
+  for (const base of live.slice(0, 12)) {
+    for (const variant of COBALT_REQUEST_VARIANTS.slice(1)) {
       try {
-        console.log(
-          `[COBALT] Sequencial ${url} via ${base} (${variant.audioFormat ?? 'mp3'})`
-        )
+        console.log(`[COBALT] Sequencial ${base} (${variant.audioFormat}/${variant.audioBitrate ?? 'best'})`)
         const winner = await attemptCobaltDownload(url, outputPath, base, variant)
-        rememberCobaltWinner(winner)
-        console.log(`[COBALT] Download concluído via ${winner}`)
+        cobaltWinnerCache = { base: winner, fetchedAt: Date.now() }
+        console.log(`[COBALT] OK via ${winner}`)
         return
       } catch (error: unknown) {
-        const message = getAxiosErrorDetail(error)
-        if (!isFastFailCobaltError(message)) {
-          console.warn(
-            `[COBALT] Falha em ${base} (${variant.audioFormat ?? 'mp3'}): ${message}`
-          )
-        }
-        lastError = new Error(message)
+        lastError = new Error(getAxiosErrorDetail(error))
       }
     }
   }
 
-  throw lastError ?? new Error('Nenhum endpoint Cobalt respondeu.')
+  throw lastError ?? new Error('Nenhum Cobalt respondeu.')
 }
 
-interface InvidiousFormat {
-  url?: string;
-  type?: string;
-  bitrate?: string | number;
-}
+// ─── Piped ────────────────────────────────────────────────
 
-async function tryInvidiousDownload(
-  videoId: string,
-  outputPath: string,
-): Promise<void> {
-  const bases = uniqueBases([
-    ...envList("INVIDIOUS_API_URL"),
-    ...FALLBACK_INVIDIOUS_BASES,
-  ]);
-
-  for (const base of bases.slice(0, 6)) {
-    try {
-      console.log(`[INVIDIOUS] Tentando ${base} — vídeo ${videoId}`);
-      const { data } = await axios.get(`${base}/api/v1/videos/${videoId}`, {
-        timeout: 20000,
-        headers: { "User-Agent": "robozap/1.0" },
-      });
-
-      const formats = (data?.adaptiveFormats ?? []) as InvidiousFormat[];
-      const audioOnly = formats.filter(
-        (format) =>
-          format.url &&
-          format.type?.startsWith("audio/") &&
-          !format.type.includes("video"),
-      );
-
-      if (!audioOnly.length) continue;
-
-      const best = [...audioOnly].sort((a, b) => {
-        return Number(b.bitrate ?? 0) - Number(a.bitrate ?? 0);
-      })[0];
-
-      await downloadStreamToFile(best.url!, outputPath, best.type, base);
-      console.log(`[INVIDIOUS] Sucesso via ${base}`);
-      return;
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[INVIDIOUS] Falha em ${base}: ${message}`);
-    }
+async function fetchHealthyPipedInstances (): Promise<string[]> {
+  const now = Date.now()
+  if (pipedInstancesCache && now - pipedInstancesCache.fetchedAt < INSTANCE_CACHE_MS) {
+    return pipedInstancesCache.urls
   }
 
-  throw new Error("Nenhuma instância Invidious respondeu.");
-}
-
-/** Testa se o robozap alcança o Cobalt (GET + POST). */
-export async function probeCobaltHealth(base: string): Promise<{
-  ok: boolean;
-  detail: string;
-}> {
-  const normalized = normalizeApiBase(base);
+  const urls: string[] = []
 
   try {
-    const { data } = await axios.get(normalized, { timeout: 8000 });
-    const version = data?.cobalt?.version ?? "ok";
-    console.log(`[COBALT] GET ${normalized} → v${version}`);
+    const { data } = await axios.get('https://piped-instances.kavin.rocks/', {
+      timeout: 10000
+    })
+
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        const apiUrl = item?.api_url ?? item?.api
+        const uptime = Number(item?.uptime_24h ?? item?.uptime ?? 100)
+        if (typeof apiUrl === 'string' && uptime >= 70) {
+          urls.push(apiUrl.replace(/\/$/, ''))
+        }
+      }
+    }
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { ok: false, detail: `GET falhou: ${message}` };
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn('[PIPED] Lista dinâmica indisponível:', message)
+  }
+
+  pipedInstancesCache = {
+    urls: uniqueBases(urls).slice(0, 20),
+    fetchedAt: now
+  }
+
+  return pipedInstancesCache.urls
+}
+
+async function resolvePipedBases (): Promise<string[]> {
+  const dynamic = await fetchHealthyPipedInstances()
+  return filterLive(uniqueBases([
+    ...envList('PIPED_API_URL'),
+    ...dynamic,
+    ...FALLBACK_PIPED_BASES
+  ]))
+}
+
+interface PipedAudioStream {
+  url: string
+  bitrate?: number
+  mimeType?: string
+}
+
+async function fetchPipedAudioStream (
+  base: string,
+  videoId: string,
+  signal?: AbortSignal
+): Promise<PipedAudioStream> {
+  const { data } = await axios.get(
+    `${normalizeApiBase(base)}/streams/${videoId}`,
+    {
+      timeout: 15000,
+      signal,
+      headers: { 'User-Agent': 'robozap/1.0' }
+    }
+  )
+
+  const streams = (data?.audioStreams ?? []) as PipedAudioStream[]
+  if (!streams.length) throw new Error('sem áudio')
+
+  return [...streams].sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0]
+}
+
+async function tryPipedRace (videoId: string, outputPath: string): Promise<void> {
+  const bases = (await resolvePipedBases()).slice(0, 10)
+  const abort = new AbortController()
+  let lastError: Error | null = null
+
+  await new Promise<void>((resolve, reject) => {
+    let pending = bases.length
+    let settled = false
+
+    if (pending === 0) {
+      reject(new Error('Nenhuma instância Piped disponível.'))
+      return
+    }
+
+    for (const base of bases) {
+      void (async () => {
+        const tempPath = uniqueTemp(outputPath, 'piped')
+        try {
+          console.log(`[PIPED] ${base} — ${videoId}`)
+          const stream = await fetchPipedAudioStream(base, videoId, abort.signal)
+          if (abort.signal.aborted || settled) return
+
+          await downloadStreamToFile(stream.url, tempPath, stream.mimeType, base)
+          if (abort.signal.aborted || settled) return
+
+          settled = true
+          abort.abort()
+          moveToOutput(tempPath, outputPath)
+          console.log(`[PIPED] OK via ${base}`)
+          resolve()
+        } catch (error: unknown) {
+          safeUnlink(tempPath)
+          if (abort.signal.aborted || settled) return
+
+          const message = error instanceof Error ? error.message : String(error)
+          if (shouldBlacklistFromError(message)) blacklist(base, message)
+          else console.warn(`[PIPED] Falha ${base}: ${message}`)
+
+          lastError = error instanceof Error ? error : new Error(message)
+          pending -= 1
+          if (pending === 0) {
+            reject(lastError ?? new Error('Piped falhou.'))
+          }
+        }
+      })()
+    }
+  })
+}
+
+// ─── Invidious ────────────────────────────────────────────
+
+interface InvidiousFormat {
+  url?: string
+  type?: string
+  bitrate?: string | number
+}
+
+async function tryInvidiousRace (videoId: string, outputPath: string): Promise<void> {
+  const bases = filterLive(uniqueBases([
+    ...envList('INVIDIOUS_API_URL'),
+    ...FALLBACK_INVIDIOUS_BASES
+  ])).slice(0, 8)
+
+  const abort = new AbortController()
+  let lastError: Error | null = null
+
+  await new Promise<void>((resolve, reject) => {
+    let pending = bases.length
+    let settled = false
+
+    if (pending === 0) {
+      reject(new Error('Nenhuma instância Invidious disponível.'))
+      return
+    }
+
+    for (const base of bases) {
+      void (async () => {
+        const tempPath = uniqueTemp(outputPath, 'inv')
+        try {
+          console.log(`[INVIDIOUS] ${base} — ${videoId}`)
+          const { data } = await axios.get(`${normalizeApiBase(base)}/api/v1/videos/${videoId}`, {
+            timeout: 15000,
+            signal: abort.signal,
+            headers: { 'User-Agent': 'robozap/1.0' }
+          })
+
+          const formats = (data?.adaptiveFormats ?? []) as InvidiousFormat[]
+          const audioOnly = formats.filter(
+            (format) =>
+              format.url &&
+              format.type?.startsWith('audio/') &&
+              !format.type.includes('video')
+          )
+
+          if (!audioOnly.length) throw new Error('sem áudio')
+
+          const best = [...audioOnly].sort(
+            (a, b) => Number(b.bitrate ?? 0) - Number(a.bitrate ?? 0)
+          )[0]
+
+          if (abort.signal.aborted || settled) return
+          await downloadStreamToFile(best.url!, tempPath, best.type, base)
+          if (abort.signal.aborted || settled) return
+
+          settled = true
+          abort.abort()
+          moveToOutput(tempPath, outputPath)
+          console.log(`[INVIDIOUS] OK via ${base}`)
+          resolve()
+        } catch (error: unknown) {
+          safeUnlink(tempPath)
+          if (abort.signal.aborted || settled) return
+
+          const message = error instanceof Error ? error.message : String(error)
+          if (shouldBlacklistFromError(message)) blacklist(base, message)
+          else console.warn(`[INVIDIOUS] Falha ${base}: ${message}`)
+
+          lastError = error instanceof Error ? error : new Error(message)
+          pending -= 1
+          if (pending === 0) {
+            reject(lastError ?? new Error('Invidious falhou.'))
+          }
+        }
+      })()
+    }
+  })
+}
+
+// ─── Public API ───────────────────────────────────────────
+
+export async function probeCobaltHealth (base: string): Promise<{
+  ok: boolean
+  detail: string
+}> {
+  const normalized = normalizeApiBase(base)
+
+  try {
+    const { data } = await axios.get(normalized, { timeout: 8000 })
+    const version = data?.cobalt?.version ?? 'ok'
+    console.log(`[COBALT] GET ${normalized} → v${version}`)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { ok: false, detail: `GET falhou: ${message}` }
   }
 
   try {
     const { data } = await axios.post<CobaltResponse>(
       `${normalized}/`,
       {
-        url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        downloadMode: "audio",
-        audioFormat: "mp3",
-        youtubeBetterAudio: false,
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        downloadMode: 'audio',
+        audioFormat: 'mp3',
+        youtubeBetterAudio: false
       },
       {
         headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          ...getCobaltAuthHeaders(),
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...getCobaltAuthHeaders()
         },
-        timeout: 25000,
-      },
-    );
-
-    if (data.status === "error") {
-      return {
-        ok: false,
-        detail: `POST erro: ${data.error?.code ?? "unknown"}`,
-      };
-    }
-
-    if (data.url && ["tunnel", "redirect"].includes(data.status)) {
-      return { ok: true, detail: `POST ok (${data.status})` };
-    }
-
-    return { ok: false, detail: `POST resposta inválida: ${data.status}` };
-  } catch (error: unknown) {
-    const message = getAxiosErrorDetail(error);
-    return { ok: false, detail: `POST falhou: ${message}` };
-  }
-}
-
-let downloadChain: Promise<void> = Promise.resolve();
-
-export function enqueueYouTubeDownload<T>(task: () => Promise<T>): Promise<T> {
-  const run = downloadChain.then(task, task);
-  downloadChain = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
-
-/** Baixa áudio do YouTube sem depender só de um backend. */
-export async function downloadYouTubeAudioProxy(
-  url: string,
-  outputPath: string,
-): Promise<void> {
-  const videoId = extractYouTubeVideoId(url);
-  if (!videoId) {
-    throw new Error("Não foi possível extrair o ID do vídeo.");
-  }
-
-  const errors: string[] = [];
-
-  // 1) Cobalt e Piped em paralelo — cada um em arquivo próprio (evita MP3 corrompido)
-  try {
-    const cobaltTemp = `${outputPath}.cobalt.tmp`;
-    const pipedTemp = `${outputPath}.piped.tmp`;
-
-    const winner = await promiseAny([
-      tryCobaltDownload(url, cobaltTemp).then(() => "cobalt" as const),
-      tryPipedRace(videoId, pipedTemp).then(() => "piped" as const),
-    ]);
-
-    const source = winner === "cobalt" ? cobaltTemp : pipedTemp;
-    const other = winner === "cobalt" ? pipedTemp : cobaltTemp;
-
-    if (!fs.existsSync(source) || fs.statSync(source).size < 1024) {
-      throw new Error("Download vazio ou corrompido.");
-    }
-
-    fs.renameSync(source, outputPath);
-    if (fs.existsSync(other)) {
-      try { fs.unlinkSync(other); } catch { /* ignore */ }
-    }
-
-    return;
-  } catch (aggregateError: unknown) {
-    if (
-      aggregateError &&
-      typeof aggregateError === "object" &&
-      "errors" in aggregateError
-    ) {
-      const list = (aggregateError as { errors: unknown[] }).errors;
-      for (const item of list) {
-        errors.push(item instanceof Error ? item.message : String(item));
+        timeout: 25000
       }
-    } else {
-      errors.push(
-        aggregateError instanceof Error
-          ? aggregateError.message
-          : String(aggregateError),
-      );
+    )
+
+    if (data.status === 'error') {
+      return { ok: false, detail: `POST erro: ${data.error?.code ?? 'unknown'}` }
     }
-    console.warn("[MEDIA] Cobalt/Piped paralelo falhou:", errors.join(" | "));
-  }
 
-  // 3) Invidious
-  try {
-    await tryInvidiousDownload(videoId, outputPath);
-    return;
+    if (data.url && ['tunnel', 'redirect'].includes(data.status)) {
+      return { ok: true, detail: `POST ok (${data.status})` }
+    }
+
+    return { ok: false, detail: `POST resposta inválida: ${data.status}` }
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    errors.push(`invidious: ${message}`);
-    console.warn("[MEDIA] invidious falhou:", message);
+    return { ok: false, detail: `POST falhou: ${getAxiosErrorDetail(error)}` }
+  }
+}
+
+/** Concorrência limitada (não fila infinita global). */
+let activeDownloads = 0
+const MAX_PARALLEL_DOWNLOADS = Number(process.env.MUSIC_MAX_PARALLEL) || 3
+const downloadWaiters: Array<() => void> = []
+
+export async function enqueueYouTubeDownload<T> (task: () => Promise<T>): Promise<T> {
+  if (activeDownloads >= MAX_PARALLEL_DOWNLOADS) {
+    await new Promise<void>((resolve) => downloadWaiters.push(resolve))
   }
 
-  const last = errors.join(" | ");
-  if (errors.some((entry) => isYoutubeBlockError(entry))) {
-    throw new Error("error.api.youtube.login");
+  activeDownloads += 1
+  try {
+    return await task()
+  } finally {
+    activeDownloads -= 1
+    const next = downloadWaiters.shift()
+    if (next) next()
   }
+}
 
-  throw new Error(errors.join(" | ") || "Falha ao baixar áudio via proxies.");
+/**
+ * Baixa áudio com múltiplos backends em fases.
+ * NÃO aborta cedo por youtube.login — tenta tudo até o fim.
+ */
+export async function downloadYouTubeAudioProxy (
+  url: string,
+  outputPath: string
+): Promise<void> {
+  const videoId = extractYouTubeVideoId(url)
+  if (!videoId) throw new Error('Não foi possível extrair o ID do vídeo.')
+
+  const errors: string[] = []
+  const cobaltTemp = uniqueTemp(outputPath, 'phase-cobalt')
+  const pipedTemp = uniqueTemp(outputPath, 'phase-piped')
+  const invTemp = uniqueTemp(outputPath, 'phase-inv')
+
+  try {
+    // Fase 1: Cobalt + Piped em paralelo
+    try {
+      const winner = await promiseAny([
+        tryCobaltDownload(url, cobaltTemp).then(() => 'cobalt' as const),
+        tryPipedRace(videoId, pipedTemp).then(() => 'piped' as const)
+      ])
+
+      const source = winner === 'cobalt' ? cobaltTemp : pipedTemp
+      const other = winner === 'cobalt' ? pipedTemp : cobaltTemp
+      moveToOutput(source, outputPath)
+      safeUnlink(other)
+      console.log(`[MEDIA] Áudio OK via ${winner}`)
+      return
+    } catch (aggregateError: unknown) {
+      const list =
+        aggregateError &&
+        typeof aggregateError === 'object' &&
+        'errors' in aggregateError
+          ? (aggregateError as { errors: unknown[] }).errors
+          : [aggregateError]
+
+      for (const item of list) {
+        errors.push(item instanceof Error ? item.message : String(item))
+      }
+      console.warn('[MEDIA] Fase Cobalt/Piped falhou:', errors.join(' | '))
+    }
+
+    // Fase 2: Invidious em corrida
+    try {
+      await tryInvidiousRace(videoId, invTemp)
+      moveToOutput(invTemp, outputPath)
+      console.log('[MEDIA] Áudio OK via Invidious')
+      return
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      errors.push(`invidious: ${message}`)
+      console.warn('[MEDIA] Invidious falhou:', message)
+    }
+
+    throw new Error(errors.join(' | ') || 'Falha ao baixar áudio via proxies.')
+  } finally {
+    safeUnlink(cobaltTemp)
+    safeUnlink(pipedTemp)
+    safeUnlink(invTemp)
+  }
 }

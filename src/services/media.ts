@@ -1,12 +1,13 @@
-import ytSearch from 'yt-search';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import fs from 'fs';
-import path from 'path';
-import axios from 'axios';
+import ytSearch from 'yt-search'
+import { exec } from 'child_process'
+import { promisify } from 'util'
+import fs from 'fs'
+import path from 'path'
+import axios from 'axios'
 import {
   downloadYouTubeAudioProxy,
-  enqueueYouTubeDownload
+  enqueueYouTubeDownload,
+  extractYouTubeVideoId
 } from './youtubeDownload'
 import { ensureYtDlpCookiesFile, shouldUseYoutubeCookies } from './youtubeCookies'
 
@@ -20,39 +21,39 @@ interface YtDlpStrategy {
 }
 
 interface YtSessionResponse {
-  poToken?: string;
-  po_token?: string;
-  visitorData?: string;
-  visitor_data?: string;
+  poToken?: string
+  po_token?: string
+  visitorData?: string
+  visitor_data?: string
 }
 
-async function fetchYtSessionTokens(): Promise<{ poToken: string; visitorData: string } | null> {
+async function fetchYtSessionTokens (): Promise<{ poToken: string, visitorData: string } | null> {
   const sessionServer = process.env.YOUTUBE_SESSION_SERVER?.trim()
   if (!sessionServer) return null
 
   const urls = [
     `${sessionServer.replace(/\/$/, '')}/token`,
     `${sessionServer.replace(/\/$/, '')}/`
-  ];
+  ]
 
   for (const url of urls) {
     try {
-      console.log(`[YT-SESSION] Tentando obter session tokens de: ${url}`);
-      const response = await axios.get<YtSessionResponse>(url, { timeout: 3000 });
-      const poToken = response.data?.poToken || response.data?.po_token;
-      const visitorData = response.data?.visitorData || response.data?.visitor_data;
+      console.log(`[YT-SESSION] Tentando tokens: ${url}`)
+      const response = await axios.get<YtSessionResponse>(url, { timeout: 4000 })
+      const poToken = response.data?.poToken || response.data?.po_token
+      const visitorData = response.data?.visitorData || response.data?.visitor_data
 
       if (poToken && visitorData) {
-        console.log('[YT-SESSION] Session tokens obtidos com sucesso!');
-        return { poToken, visitorData };
+        console.log('[YT-SESSION] Tokens OK')
+        return { poToken, visitorData }
       }
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.warn(`[YT-SESSION] Falha ao obter tokens em ${url}: ${msg}`);
+      const msg = error instanceof Error ? error.message : String(error)
+      console.warn(`[YT-SESSION] Falha em ${url}: ${msg}`)
     }
   }
 
-  return null;
+  return null
 }
 
 function shellQuote (value: string): string {
@@ -61,153 +62,208 @@ function shellQuote (value: string): string {
 
 function buildFormatArgs (kind: DownloadKind): string {
   if (kind === 'audio') {
-    return '-f "bestaudio/best"'
+    return '-f "bestaudio[ext=m4a]/bestaudio/best" --extract-audio --audio-format mp3 --audio-quality 0'
   }
   return '-f "bestvideo+bestaudio/best" --merge-output-format mp4'
 }
 
-function getStrategies (tokens: { poToken: string; visitorData: string } | null): YtDlpStrategy[] {
+function getStrategies (tokens: { poToken: string, visitorData: string } | null): YtDlpStrategy[] {
   const strategies: YtDlpStrategy[] = []
 
+  // Clientes que costumam funcionar SEM po_token primeiro (mais rápidos)
+  strategies.push(
+    {
+      name: 'android',
+      extraArgs: '--extractor-args "youtube:player_client=android"'
+    },
+    {
+      name: 'ios',
+      extraArgs: '--extractor-args "youtube:player_client=ios"'
+    },
+    {
+      name: 'tv',
+      extraArgs: '--extractor-args "youtube:player_client=tv"'
+    },
+    {
+      name: 'tv_embedded',
+      extraArgs: '--extractor-args "youtube:player_client=tv_embedded"'
+    },
+    {
+      name: 'mweb',
+      extraArgs: '--extractor-args "youtube:player_client=mweb"'
+    }
+  )
+
   if (tokens?.poToken && tokens?.visitorData) {
-    strategies.push({
+    strategies.unshift({
       name: 'po_token+web',
       extraArgs: `--extractor-args "youtube:player_client=web;po_token=web+${tokens.poToken};visitor_data=${tokens.visitorData}"`
-    })
-    strategies.push({
-      name: 'po_token+web_embedded',
-      extraArgs: `--extractor-args "youtube:player_client=web_embedded;po_token=web+${tokens.poToken};visitor_data=${tokens.visitorData}"`
     })
   }
 
   strategies.push(
     {
-      name: 'web_embedded',
-      extraArgs: '--extractor-args "youtube:player_client=web_embedded"'
-    },
-    {
       name: 'web_safari',
       extraArgs: '--extractor-args "youtube:player_client=web_safari"'
     },
     {
-      name: 'android_vr',
-      extraArgs: '--extractor-args "youtube:player_client=android_vr,web"'
-    },
-    {
-      name: 'tv_embedded',
-      extraArgs: '--extractor-args "youtube:player_client=tv_embedded,web"'
-    },
-    {
-      name: 'ios',
-      extraArgs: '--extractor-args "youtube:player_client=ios,web"'
-    },
-    {
-      name: 'default_sans_sdkless',
-      extraArgs: '--extractor-args "youtube:player_client=default,-android_sdkless"'
+      name: 'default',
+      extraArgs: ''
     }
   )
 
   return strategies
 }
 
+function normalizeCandidateUrl (raw: string): string | null {
+  const id = extractYouTubeVideoId(raw) || extractYouTubeVideoId(
+    raw.includes('watch?v=') ? raw : `https://www.youtube.com/watch?v=${raw}`
+  )
+  if (!id || id.length < 11) return null
+  return `https://www.youtube.com/watch?v=${id.slice(0, 11)}`
+}
+
+function pushUnique (list: string[], url: string | null): void {
+  if (!url) return
+  if (!list.includes(url)) list.push(url)
+}
+
 export class MediaService {
-  private async searchYouTubeViaPiped (query: string): Promise<string | null> {
+  private async searchViaPiped (query: string, limit: number): Promise<string[]> {
     const bases = [
-      ...(process.env.PIPED_API_URL ?? '')
+      ...((process.env.PIPED_API_URL ?? '')
         .split(',')
         .map((value) => value.trim().replace(/\/$/, ''))
-        .filter(Boolean),
+        .filter(Boolean)),
       'https://pipedapi.kavin.rocks',
       'https://pipedapi.syncpundit.io',
       'https://api-piped.mha.fi',
       'https://pipedapi.tokhmi.xyz',
-      'https://piped-api.lunar.icu'
+      'https://piped-api.lunar.icu',
+      'https://pipedapi.adminforge.de'
     ]
 
-    const encoded = encodeURIComponent(query)
+    const results: string[] = []
+    const filters = ['music_songs', 'videos']
+
+    for (const base of bases.slice(0, 5)) {
+      if (results.length >= limit) break
+
+      for (const filter of filters) {
+        if (results.length >= limit) break
+
+        try {
+          const { data } = await axios.get(`${base}/search`, {
+            params: { q: query, filter },
+            timeout: 7000,
+            headers: { 'User-Agent': 'robozap/1.0' }
+          })
+
+          const items = Array.isArray(data?.items)
+            ? data.items
+            : Array.isArray(data)
+              ? data
+              : []
+
+          for (const item of items) {
+            const raw =
+              item?.videoId ||
+              item?.id ||
+              item?.url ||
+              ''
+            pushUnique(results, normalizeCandidateUrl(String(raw)))
+            if (results.length >= limit) break
+          }
+
+          if (results.length > 0) {
+            console.log(`[YT-SEARCH] Piped ${base}/${filter}: ${results.length} candidatos`)
+          }
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : String(error)
+          console.warn(`[YT-SEARCH] Piped ${base} falhou: ${message}`)
+        }
+      }
+    }
+
+    return results
+  }
+
+  private async searchViaInvidious (query: string, limit: number): Promise<string[]> {
+    const bases = [
+      ...((process.env.INVIDIOUS_API_URL ?? '')
+        .split(',')
+        .map((value) => value.trim().replace(/\/$/, ''))
+        .filter(Boolean)),
+      'https://inv.nadeko.net',
+      'https://yewtu.be',
+      'https://invidious.nerdvpn.de',
+      'https://vid.puffyan.us'
+    ]
+
+    const results: string[] = []
 
     for (const base of bases.slice(0, 4)) {
+      if (results.length >= limit) break
+
       try {
-        const { data } = await axios.get(`${base}/search`, {
-          params: { q: query, filter: 'music_songs' },
-          timeout: 8000,
+        const { data } = await axios.get(`${base}/api/v1/search`, {
+          params: { q: query, type: 'video' },
+          timeout: 7000,
           headers: { 'User-Agent': 'robozap/1.0' }
         })
 
-        const items = Array.isArray(data?.items)
-          ? data.items
-          : Array.isArray(data)
-            ? data
-            : []
-
-        const video = items.find(
-          (item: any) =>
-            item?.url ||
-            item?.id ||
-            item?.videoId ||
-            typeof item?.url === 'string'
-        )
-
-        if (!video) {
-          // fallback sem filtro music
-          const { data: all } = await axios.get(`${base}/search?q=${encoded}&filter=videos`, {
-            timeout: 8000,
-            headers: { 'User-Agent': 'robozap/1.0' }
-          })
-          const list = Array.isArray(all?.items) ? all.items : Array.isArray(all) ? all : []
-          const first = list[0]
-          if (!first) continue
-          const id = first.videoId || first.id || String(first.url || '').replace(/^\//, '')
-          const cleanId = String(id).replace(/^\/watch\?v=/, '').split('&')[0]
-          if (cleanId && cleanId.length >= 11) {
-            console.log(`[YT-SEARCH] Piped (${base}): ${cleanId}`)
-            return `https://www.youtube.com/watch?v=${cleanId.slice(0, 11)}`
-          }
-          continue
+        const items = Array.isArray(data) ? data : []
+        for (const item of items) {
+          pushUnique(results, normalizeCandidateUrl(String(item?.videoId || item?.video_id || '')))
+          if (results.length >= limit) break
         }
 
-        const id =
-          video.videoId ||
-          video.id ||
-          String(video.url || '').replace(/^\/watch\?v=/, '').split('&')[0]
-        const cleanId = String(id).replace(/^\//, '')
-        if (cleanId && cleanId.length >= 11) {
-          console.log(`[YT-SEARCH] Piped music (${base}): ${cleanId}`)
-          return `https://www.youtube.com/watch?v=${cleanId.slice(0, 11)}`
+        if (results.length > 0) {
+          console.log(`[YT-SEARCH] Invidious ${base}: ${results.length} candidatos`)
         }
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error)
-        console.warn(`[YT-SEARCH] Piped falhou em ${base}: ${message}`)
+        console.warn(`[YT-SEARCH] Invidious ${base} falhou: ${message}`)
       }
     }
 
-    return null
+    return results
+  }
+
+  /** Retorna até N URLs candidatas (para retry se o 1º vídeo falhar no download). */
+  async searchYouTubeCandidates (query: string, limit = 5): Promise<string[]> {
+    const started = Date.now()
+    const results: string[] = []
+
+    const [piped, invidious] = await Promise.all([
+      this.searchViaPiped(query, limit),
+      this.searchViaInvidious(query, limit)
+    ])
+
+    for (const url of [...piped, ...invidious]) pushUnique(results, url)
+
+    if (results.length < limit) {
+      try {
+        const yt = await ytSearch(query)
+        for (const video of yt.videos || []) {
+          pushUnique(results, normalizeCandidateUrl(video.url || video.videoId))
+          if (results.length >= limit) break
+        }
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.warn('[YT-SEARCH] yt-search falhou:', message)
+      }
+    }
+
+    console.log(
+      `[YT-SEARCH] "${query}" → ${results.length} candidatos em ${Date.now() - started}ms`
+    )
+    return results.slice(0, limit)
   }
 
   async searchYouTube (query: string): Promise<string | null> {
-    const started = Date.now()
-
-    try {
-      const pipedUrl = await this.searchYouTubeViaPiped(query)
-      if (pipedUrl) {
-        console.log(`[YT-SEARCH] OK via Piped em ${Date.now() - started}ms`)
-        return pipedUrl
-      }
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error)
-      console.warn('[YT-SEARCH] Piped search falhou:', message)
-    }
-
-    try {
-      const results = await ytSearch(query)
-      const url = results.videos.length > 0 ? results.videos[0].url : null
-      console.log(`[YT-SEARCH] Fallback yt-search em ${Date.now() - started}ms → ${url || 'vazio'}`)
-      return url
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error)
-      console.error('[YT-SEARCH] yt-search falhou:', message)
-      return null
-    }
+    const candidates = await this.searchYouTubeCandidates(query, 1)
+    return candidates[0] || null
   }
 
   private async runYtDlp (
@@ -222,98 +278,161 @@ export class MediaService {
     const cookiesArg = cookiesFile ? `--cookies ${shellQuote(cookiesFile)}` : ''
     let lastError: Error | null = null
 
-    for (const strategy of strategies) {
-      const targetPath = kind === 'audio' ? outputPath + '.raw' : outputPath
+    // Atualiza yt-dlp uma vez por processo (best-effort)
+    await maybeUpdateYtDlp()
 
-      const proxyUrl = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '';
-      const proxyArg = proxyUrl ? `--proxy ${shellQuote(proxyUrl)}` : '';
+    for (const strategy of strategies) {
+      const proxyUrl = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || ''
+      const proxyArg = proxyUrl ? `--proxy ${shellQuote(proxyUrl)}` : ''
+      const outTemplate = kind === 'audio'
+        ? shellQuote(outputPath.replace(/\.mp3$/i, '') + '.%(ext)s')
+        : shellQuote(outputPath)
 
       const command = [
         'yt-dlp',
-        '--js-runtimes deno',
+        '--no-playlist',
+        '--no-check-certificates',
+        '--geo-bypass',
+        '--retries', '3',
+        '--fragment-retries', '3',
+        '--socket-timeout', '20',
         proxyArg,
         cookiesArg,
         strategy.extraArgs,
         formatArgs,
-        '--no-playlist',
-        '--no-check-certificates',
         shellQuote(url),
         '-o',
-        shellQuote(targetPath)
+        outTemplate
       ].filter(Boolean).join(' ')
 
       console.log(`[YT-DLP] Tentativa (${strategy.name})${cookiesFile ? ' + cookies' : ''}: ${url}`)
 
       try {
-        await execAsync(command, { maxBuffer: 10 * 1024 * 1024 })
+        await execAsync(command, {
+          maxBuffer: 12 * 1024 * 1024,
+          timeout: 90000
+        })
 
-        if (fs.existsSync(targetPath)) {
-          if (kind === 'audio') {
-            console.log(`[YT-DLP] Sucesso no download bruto. Convertendo para MP3...`)
-            const convertCommand = `ffmpeg -y -i ${shellQuote(targetPath)} -vn -acodec libmp3lame -q:a 0 ${shellQuote(outputPath)}`
-            await execAsync(convertCommand)
-            
-            if (fs.existsSync(targetPath)) {
-              fs.unlinkSync(targetPath)
+        if (kind === 'audio') {
+          const stem = outputPath.replace(/\.mp3$/i, '')
+          const dir = path.dirname(outputPath)
+          const stemBase = path.basename(stem)
+          const candidates = fs.readdirSync(dir)
+            .filter((name) => name === `${stemBase}.mp3` || name.startsWith(`${stemBase}.`))
+            .map((name) => path.join(dir, name))
+
+          let source =
+            candidates.find((file) => file.toLowerCase().endsWith('.mp3')) ||
+            candidates[0]
+
+          if (!source && fs.existsSync(outputPath)) {
+            source = outputPath
+          }
+
+          if (!source) throw new Error('Arquivo não gerado pelo yt-dlp')
+
+          if (source !== outputPath) {
+            if (source.toLowerCase().endsWith('.mp3')) {
+              if (fs.existsSync(outputPath)) safeUnlink(outputPath)
+              fs.renameSync(source, outputPath)
+            } else {
+              const convertCommand = `ffmpeg -y -hide_banner -loglevel error -i ${shellQuote(source)} -vn -acodec libmp3lame -q:a 0 ${shellQuote(outputPath)}`
+              await execAsync(convertCommand, { timeout: 120000 })
+              safeUnlink(source)
             }
           }
 
-          console.log(`[YT-DLP] Sucesso com estratégia: ${strategy.name}`)
+          if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 8192) {
+            throw new Error('MP3 inválido após yt-dlp')
+          }
+
+          console.log(`[YT-DLP] Sucesso (${strategy.name})`)
           return
         }
 
-        lastError = new Error('O arquivo não foi gerado após o download.')
+        if (fs.existsSync(outputPath)) {
+          console.log(`[YT-DLP] Sucesso (${strategy.name})`)
+          return
+        }
+
+        lastError = new Error('Arquivo não gerado após o download.')
       } catch (error: unknown) {
-        if (kind === 'audio' && fs.existsSync(targetPath)) {
-          try { fs.unlinkSync(targetPath) } catch {}
-        }
+        try {
+          const stem = outputPath.replace(/\.mp3$/i, '')
+          const dir = path.dirname(outputPath)
+          const stemBase = path.basename(stem)
+          for (const name of fs.readdirSync(dir)) {
+            if (name.startsWith(stemBase + '.')) {
+              safeUnlink(path.join(dir, name))
+            }
+          }
+        } catch { /* ignore */ }
 
-        const message =
-          error instanceof Error ? error.message : String(error)
-        console.error(`[YT-DLP] Falha (${strategy.name}):`, message)
+        const message = error instanceof Error ? error.message : String(error)
+        console.error(`[YT-DLP] Falha (${strategy.name}):`, message.slice(0, 300))
         lastError = error instanceof Error ? error : new Error(message)
-
-        if (message.toLowerCase().includes('sign in') || message.toLowerCase().includes('not a bot')) {
-          // continua tentando outras estratégias / cookies
-        }
       }
-    }
-
-    const finalMessage = lastError?.message ?? ''
-    if (
-      finalMessage.toLowerCase().includes('sign in') ||
-      finalMessage.toLowerCase().includes('not a bot') ||
-      finalMessage.includes('error.api.youtube')
-    ) {
-      throw new Error('error.api.youtube.login')
     }
 
     throw lastError ?? new Error('Não foi possível baixar o conteúdo do YouTube.')
   }
 
-  async downloadMusic (url: string, outputPath: string): Promise<void> {
+  /**
+   * Baixa música com máxima resiliência:
+   * 1) proxies (Cobalt/Piped/Invidious)
+   * 2) yt-dlp
+   * Se receber vários candidatos, tenta o próximo quando o atual falha.
+   */
+  async downloadMusic (
+    urlOrCandidates: string | string[],
+    outputPath: string
+  ): Promise<string> {
+    const candidates = Array.isArray(urlOrCandidates)
+      ? urlOrCandidates
+      : [urlOrCandidates]
+
     return enqueueYouTubeDownload(async () => {
-      try {
-        console.log('[MEDIA] Baixando áudio (Cobalt/Piped/Invidious)...');
-        await downloadYouTubeAudioProxy(url, outputPath);
-        return;
-      } catch (proxyError: unknown) {
-        const proxyMessage =
-          proxyError instanceof Error ? proxyError.message : String(proxyError);
-        console.error('[MEDIA] Proxies falharam:', proxyMessage);
+      const errors: string[] = []
+
+      for (let i = 0; i < candidates.length; i++) {
+        const url = candidates[i]
+        console.log(`[MEDIA] Candidato ${i + 1}/${candidates.length}: ${url}`)
+
+        try {
+          await downloadYouTubeAudioProxy(url, outputPath)
+          if (fs.existsSync(outputPath) && fs.statSync(outputPath).size >= 8192) {
+            return url
+          }
+        } catch (proxyError: unknown) {
+          const proxyMessage =
+            proxyError instanceof Error ? proxyError.message : String(proxyError)
+          console.error(`[MEDIA] Proxies falharam no candidato ${i + 1}:`, proxyMessage.slice(0, 400))
+          errors.push(`proxy[${i}]: ${proxyMessage}`)
+        }
+
+        try {
+          console.log(`[MEDIA] Fallback yt-dlp no candidato ${i + 1}...`)
+          await this.runYtDlp(url, outputPath, 'audio')
+          if (fs.existsSync(outputPath) && fs.statSync(outputPath).size >= 8192) {
+            return url
+          }
+        } catch (ytdlpError: unknown) {
+          const message =
+            ytdlpError instanceof Error ? ytdlpError.message : String(ytdlpError)
+          console.error(`[MEDIA] yt-dlp falhou no candidato ${i + 1}:`, message.slice(0, 400))
+          errors.push(`ytdlp[${i}]: ${message}`)
+        }
+
+        safeUnlink(outputPath)
       }
 
-      try {
-        await this.runYtDlp(url, outputPath, 'audio');
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error)
-        console.error('[YT-DLP ERROR]:', message)
-        if (message.includes('error.api.youtube.login')) {
-          throw new Error('error.api.youtube.login')
-        }
-        throw new Error('error.download.failed')
+      const joined = errors.join(' | ')
+      if (/youtube\.login|sign in|not a bot|no_session/i.test(joined)) {
+        throw new Error('error.api.youtube.login')
       }
-    });
+
+      throw new Error(joined || 'error.download.failed')
+    })
   }
 
   async downloadVideo (url: string, outputPath: string): Promise<void> {
@@ -325,5 +444,27 @@ export class MediaService {
       console.error('[YT-DLP VIDEO ERROR]:', message)
       throw new Error('Erro ao baixar vídeo. Pode ser link privado, bloqueado ou cookies expirados.')
     }
+  }
+}
+
+function safeUnlink (filePath: string): void {
+  if (fs.existsSync(filePath)) {
+    try { fs.unlinkSync(filePath) } catch { /* ignore */ }
+  }
+}
+
+let ytDlpUpdatedThisProcess = false
+
+async function maybeUpdateYtDlp (): Promise<void> {
+  if (ytDlpUpdatedThisProcess) return
+  ytDlpUpdatedThisProcess = true
+
+  try {
+    console.log('[YT-DLP] Atualizando yt-dlp (best-effort)...')
+    await execAsync('yt-dlp -U', { timeout: 60000, maxBuffer: 2 * 1024 * 1024 })
+    console.log('[YT-DLP] Atualizado')
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn('[YT-DLP] Não foi possível atualizar:', message.slice(0, 200))
   }
 }

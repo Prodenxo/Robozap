@@ -39,10 +39,12 @@ services:
       - robozap-net
 
   # Gera PO tokens pro Cobalt — evita atualizar cookies na mão
+  # IMPORTANTE: precisa de ~1GB RAM. Se ficar em 503, o .tocar usa Cobalt público + yt-dlp.
   yt-session:
     image: ghcr.io/imputnet/yt-session-generator:webserver
     init: true
     restart: unless-stopped
+    mem_limit: 1280m
     networks:
       - robozap-net
 

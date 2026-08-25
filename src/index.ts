@@ -6,7 +6,7 @@ dotenv.config();
 
 import { probeCobaltHealth } from './services/youtubeDownload';
 
-const MUSIC_BUILD = '2026-07-tocar-fix-v3';
+const MUSIC_BUILD = '2026-08-tocar-resilient-v4';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -62,7 +62,7 @@ async function logMusicBackendStatus (): Promise<void> {
   }
 
   console.log(
-    '[ROBOZAP] .tocar: Cobalt público → local+session → Piped → Invidious → yt-dlp (sem cookies manuais)'
+    '[ROBOZAP] .tocar v4: multi-candidato + Cobalt/Piped/Invidious race + yt-dlp + blacklist'
   );
 }
 

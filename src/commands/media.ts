@@ -438,22 +438,25 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
           botTexts.media.musicaSearch.replace('$query', musicQuery)
         );
 
-        let url = musicQuery;
         const isYouTubeUrl = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be|music\.youtube\.com)\//.test(musicQuery);
-        if (!isYouTubeUrl) {
-          url = await media.searchYouTube(musicQuery) || '';
+
+        let candidates: string[] = []
+        if (isYouTubeUrl) {
+          candidates = [musicQuery]
+        } else {
+          candidates = await media.searchYouTubeCandidates(musicQuery, 5)
         }
 
-        if (!url) {
+        if (candidates.length === 0) {
           await whatsapp.sendMessage(msg.remoteJid, botTexts.media.musicaErrorNotFound);
           return true;
         }
 
         tempPath = path.join(process.cwd(), `temp_${Date.now()}.mp3`);
-        const downloadTimeoutMs = Number(process.env.MUSIC_DOWNLOAD_TIMEOUT_MS) || 180000;
+        const downloadTimeoutMs = Number(process.env.MUSIC_DOWNLOAD_TIMEOUT_MS) || 240000;
 
         await Promise.race([
-          media.downloadMusic(url, tempPath),
+          media.downloadMusic(candidates, tempPath),
           new Promise((_, reject) => {
             setTimeout(
               () => reject(new Error('Timeout no download da música')),
@@ -462,7 +465,7 @@ export const handleMediaCommands = async (command: string, args: string[], msg: 
           })
         ]);
 
-        if (!fs.existsSync(tempPath) || fs.statSync(tempPath).size === 0) {
+        if (!fs.existsSync(tempPath) || fs.statSync(tempPath).size < 8192) {
           throw new Error('Arquivo de áudio vazio');
         }
 
