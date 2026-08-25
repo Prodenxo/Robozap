@@ -384,24 +384,27 @@ async function fetchDynamicCobaltInstances (): Promise<string[]> {
 async function resolveCobaltBases (): Promise<string[]> {
   const fromEnv = envList('COBALT_API_URL')
   const extraPublic = envList('COBALT_PUBLIC_URL')
-  const dynamic = await fetchDynamicCobaltInstances()
-  const hasApiKey = Boolean(process.env.COBALT_API_KEY?.trim())
+  const localBases = fromEnv.length ? fromEnv : ['http://cobalt:9000']
 
+  let dynamic: string[] = []
+  try {
+    dynamic = await Promise.race([
+      fetchDynamicCobaltInstances(),
+      new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 2500))
+    ])
+  } catch {
+    dynamic = []
+  }
+
+  const hasApiKey = Boolean(process.env.COBALT_API_KEY?.trim())
   const publicBases = uniqueBases([
+    'https://api.cobalt.liubquanti.click',
     ...extraPublic,
     ...dynamic,
     ...FALLBACK_COBALT_PUBLIC
   ]).filter((base) => hasApiKey || !COBALT_JWT_BASES.has(normalizeApiBase(base)))
 
-  const localBases = fromEnv.length ? fromEnv : ['http://cobalt:9000']
-
-  // Local NÃO vai no topo só porque YOUTUBE_SESSION_SERVER existe —
-  // session quebrada atrasa tudo. Público + winner primeiro.
-  let ordered = uniqueBases([...publicBases, ...localBases])
-
-  if (hasValidYoutubeCookies()) {
-    ordered = uniqueBases([...localBases, ...publicBases])
-  }
+  let ordered = uniqueBases([...localBases, ...publicBases])
 
   if (
     cobaltWinnerCache &&
@@ -409,6 +412,7 @@ async function resolveCobaltBases (): Promise<string[]> {
     !isBlacklisted(cobaltWinnerCache.base)
   ) {
     ordered = uniqueBases([cobaltWinnerCache.base, ...ordered])
+    console.log(`[COBALT] Priorizando vencedor: ${cobaltWinnerCache.base}`)
   }
 
   return filterLive(ordered)

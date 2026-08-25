@@ -29,29 +29,49 @@ export function getYoutubeCookieHeaderFromEnv (): string | null {
 
 /**
  * Garante cookies.json no formato Cobalt a partir de YOUTUBE_COOKIES.
- * Retorna o caminho do JSON se houver cookies válidos.
+ * Também copia pra pasta compartilhada com o serviço Cobalt (se montada).
  */
 export function ensureCobaltCookiesJson (): string | null {
   const jsonPath = process.env.COBALT_COOKIES_JSON?.trim() || COOKIE_FILE
   const fromEnv = getYoutubeCookieHeaderFromEnv()
+  const sharedPaths = [
+    process.env.COBALT_SHARED_COOKIES_PATH?.trim(),
+    '/data/cookies/cookies.json',
+    '/cookies/cookies.json'
+  ].filter(Boolean) as string[]
 
-  if (fromEnv) {
+  const writeJson = (target: string, header: string): boolean => {
     try {
+      const dir = path.dirname(target)
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
       fs.writeFileSync(
-        jsonPath,
-        JSON.stringify({ youtube: [fromEnv] }, null, 2),
+        target,
+        JSON.stringify({ youtube: [header] }, null, 2),
         'utf-8'
       )
-      return jsonPath
+      return true
     } catch (error) {
-      console.warn('[COOKIES] Falha ao gravar cookies.json a partir do env:', error)
+      console.warn(`[COOKIES] Falha ao gravar ${target}:`, error)
+      return false
     }
+  }
+
+  if (fromEnv) {
+    writeJson(jsonPath, fromEnv)
+    for (const shared of sharedPaths) {
+      writeJson(shared, fromEnv)
+    }
+    console.log('[COOKIES] cookies.json atualizado a partir de YOUTUBE_COOKIES')
+    return jsonPath
   }
 
   if (fs.existsSync(jsonPath)) {
     try {
       const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf-8')) as { youtube?: string[] }
       if (typeof raw.youtube?.[0] === 'string' && raw.youtube[0].trim().length > 20) {
+        for (const shared of sharedPaths) {
+          writeJson(shared, raw.youtube[0])
+        }
         return jsonPath
       }
     } catch {

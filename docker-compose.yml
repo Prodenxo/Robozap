@@ -9,6 +9,8 @@ services:
       COBALT_API_URL: http://cobalt:9000/
       YOUTUBE_USE_COOKIES: "true"
       YOUTUBE_SESSION_SERVER: "http://yt-session:8080"
+      COBALT_SHARED_COOKIES_PATH: /data/cookies/cookies.json
+      COBALT_PUBLIC_URL: https://api.cobalt.liubquanti.click
       NO_PROXY: "localhost,127.0.0.1,cobalt,yt-session,mysql,filhote-mysql"
       no_proxy: "localhost,127.0.0.1,cobalt,yt-session,mysql,filhote-mysql"
     depends_on:
@@ -16,6 +18,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./yt-dlp-cache:/root/.cache/yt-dlp
+      - youtube-cookies:/data/cookies
     networks:
       - robozap-net
 
@@ -30,19 +33,17 @@ services:
       API_PORT: "9000"
       RATELIMIT_WINDOW: "60"
       RATELIMIT_MAX: "30"
-      # Tokens automáticos (sem cookies manuais) — precisa do yt-session saudável
       YOUTUBE_SESSION_SERVER: "http://yt-session:8080"
-      HTTP_PROXY: "${HTTP_PROXY:-}"
-      HTTPS_PROXY: "${HTTPS_PROXY:-}"
-      http_proxy: "${HTTP_PROXY:-}"
-      https_proxy: "${HTTPS_PROXY:-}"
+      # Cookies compartilhados com o robozap (mesmo volume)
+      COOKIE_PATH: /data/cookies/cookies.json
+      # NÃO usar HTTP_PROXY quebrado no Cobalt
     depends_on:
       - yt-session
+    volumes:
+      - youtube-cookies:/data/cookies
     networks:
       - robozap-net
 
-  # Gera PO tokens pro Cobalt — evita atualizar cookies na mão
-  # IMPORTANTE: precisa de ~1GB RAM. Se ficar em 503, o .tocar usa Cobalt público + yt-dlp.
   yt-session:
     image: ghcr.io/imputnet/yt-session-generator:webserver
     init: true
@@ -50,6 +51,9 @@ services:
     mem_limit: 1280m
     networks:
       - robozap-net
+
+volumes:
+  youtube-cookies:
 
 networks:
   robozap-net:

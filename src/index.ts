@@ -17,7 +17,7 @@ import {
 } from './services/youtubeCookies'
 import { getYtDlpProxyUrl } from './proxyBootstrap'
 
-const MUSIC_BUILD = '2026-08-tocar-noproxy-v9'
+const MUSIC_BUILD = '2026-08-tocar-cobalt-first-v10'
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -86,7 +86,7 @@ async function logMusicBackendStatus (): Promise<void> {
   }
 
   console.log(
-    '[ROBOZAP] .tocar v6: cookies env + yt-session + proxy + fail-fast'
+    '[ROBOZAP] .tocar v10: Cobalt-first (liubquanti+local) → yt-dlp fallback'
   );
 }
 

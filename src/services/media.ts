@@ -6,10 +6,9 @@ import path from 'path'
 import {
   downloadYouTubeAudioProxy,
   enqueueYouTubeDownload,
-  extractYouTubeVideoId,
-  promiseAny
+  extractYouTubeVideoId
 } from './youtubeDownload'
-import { ensureYtDlpCookiesFile, shouldUseYoutubeCookies, ensureCobaltCookiesJson, hasValidYoutubeCookies } from './youtubeCookies'
+import { ensureYtDlpCookiesFile, shouldUseYoutubeCookies, ensureCobaltCookiesJson } from './youtubeCookies'
 import { httpDirect, isProxyAuthError, getYtDlpProxyUrl } from './http'
 
 const execAsync = promisify(exec)
@@ -432,8 +431,8 @@ export class MediaService {
   }
 
   /**
-   * Com cookies/proxy: yt-dlp PRIMEIRO (caminho que funciona no teu setup).
-   * Sem isso: proxies públicos + yt-dlp em paralelo.
+   * Cobalt PRIMEIRO (já provou funcionar com liubquanti).
+   * yt-dlp só se Cobalt falhar — outros bots usam Cobalt/self-host, não yt-dlp lento.
    */
   async downloadMusic (
     urlOrCandidates: string | string[],
@@ -446,10 +445,8 @@ export class MediaService {
     return enqueueYouTubeDownload(async () => {
       const errors: string[] = []
       ensureCobaltCookiesJson()
-      const hasCookies = hasValidYoutubeCookies() && shouldUseYoutubeCookies()
-      const hasProxy = Boolean(getYtDlpProxyUrl())
-      const preferYtDlp = hasCookies
-      console.log(`[MEDIA] Estratégia: preferYtDlp=${preferYtDlp} cookies=${hasCookies} proxyEnv=${hasProxy} proxyBroken=${proxyAuthFailedThisProcess}`)
+
+      console.log('[MEDIA] Estratégia: Cobalt/Piped primeiro → yt-dlp fallback')
 
       for (let i = 0; i < candidates.length; i++) {
         const url = candidates[i]
@@ -459,52 +456,36 @@ export class MediaService {
         const ytdlpTemp = `${outputPath}.ytdlp.${i}.tmp`
 
         try {
-          if (preferYtDlp) {
-            // Caminho principal: yt-dlp com cookies + proxy residencial
-            try {
-              await this.runYtDlp(url, ytdlpTemp, 'audio')
-              if (fs.existsSync(ytdlpTemp) && fs.statSync(ytdlpTemp).size >= 8192) {
-                if (fs.existsSync(outputPath)) safeUnlink(outputPath)
-                fs.renameSync(ytdlpTemp, outputPath)
-                console.log(`[MEDIA] Áudio OK via yt-dlp (candidato ${i + 1})`)
-                return url
-              }
-            } catch (ytdlpError: unknown) {
-              const message = ytdlpError instanceof Error ? ytdlpError.message : String(ytdlpError)
-              console.error(`[MEDIA] yt-dlp falhou, tentando proxies:`, message.slice(0, 300))
-              errors.push(`ytdlp[${i}]: ${message}`)
+          try {
+            await downloadYouTubeAudioProxy(url, proxyTemp)
+            if (fs.existsSync(proxyTemp) && fs.statSync(proxyTemp).size >= 8192) {
+              if (fs.existsSync(outputPath)) safeUnlink(outputPath)
+              fs.renameSync(proxyTemp, outputPath)
+              safeUnlink(ytdlpTemp)
+              console.log(`[MEDIA] Áudio OK via Cobalt/Piped (candidato ${i + 1})`)
+              return url
             }
+          } catch (proxyError: unknown) {
+            const message = proxyError instanceof Error ? proxyError.message : String(proxyError)
+            console.error(`[MEDIA] Cobalt/Piped falhou:`, message.slice(0, 300))
+            errors.push(`proxy[${i}]: ${message}`)
+          }
 
-            try {
-              await downloadYouTubeAudioProxy(url, proxyTemp)
-              if (fs.existsSync(proxyTemp) && fs.statSync(proxyTemp).size >= 8192) {
-                if (fs.existsSync(outputPath)) safeUnlink(outputPath)
-                fs.renameSync(proxyTemp, outputPath)
-                console.log(`[MEDIA] Áudio OK via proxy (candidato ${i + 1})`)
-                return url
-              }
-            } catch (proxyError: unknown) {
-              const message = proxyError instanceof Error ? proxyError.message : String(proxyError)
-              errors.push(`proxy[${i}]: ${message}`)
+          try {
+            console.log(`[MEDIA] Fallback yt-dlp candidato ${i + 1}...`)
+            await this.runYtDlp(url, ytdlpTemp, 'audio')
+            if (fs.existsSync(ytdlpTemp) && fs.statSync(ytdlpTemp).size >= 8192) {
+              if (fs.existsSync(outputPath)) safeUnlink(outputPath)
+              fs.renameSync(ytdlpTemp, outputPath)
+              safeUnlink(proxyTemp)
+              console.log(`[MEDIA] Áudio OK via yt-dlp (candidato ${i + 1})`)
+              return url
             }
-          } else {
-            const winner = await promiseAny([
-              downloadYouTubeAudioProxy(url, proxyTemp).then(() => 'proxy' as const),
-              this.runYtDlp(url, ytdlpTemp, 'audio').then(() => 'ytdlp' as const)
-            ])
-
-            const source = winner === 'proxy' ? proxyTemp : ytdlpTemp
-            const other = winner === 'proxy' ? ytdlpTemp : proxyTemp
-
-            if (!fs.existsSync(source) || fs.statSync(source).size < 8192) {
-              throw new Error('Arquivo inválido após download')
-            }
-
-            if (fs.existsSync(outputPath)) safeUnlink(outputPath)
-            fs.renameSync(source, outputPath)
-            safeUnlink(other)
-            console.log(`[MEDIA] Áudio OK via ${winner} (candidato ${i + 1})`)
-            return url
+          } catch (ytdlpError: unknown) {
+            const message = ytdlpError instanceof Error ? ytdlpError.message : String(ytdlpError)
+            const stderr = (ytdlpError as { stderr?: string })?.stderr
+            if (stderr) console.error('[YT-DLP] stderr:', stderr.slice(-500))
+            errors.push(`ytdlp[${i}]: ${message}`)
           }
 
           throw new Error(errors[errors.length - 1] || 'download falhou')
