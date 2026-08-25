@@ -5,6 +5,7 @@ import fs from 'fs'
 import { promisify } from 'util'
 import { pipeline } from 'stream/promises'
 import { hasValidYoutubeCookies } from './youtubeCookies'
+import { httpDirect, isProxyAuthError } from './http'
 
 const execAsync = promisify(exec)
 
@@ -210,7 +211,7 @@ async function downloadStreamToFile (
       ? `${outputPath}.raw${rawExt}`
       : outputPath
 
-  const response = await axios.get(streamUrl, {
+  const response = await httpDirect.get(streamUrl, {
     responseType: 'stream',
     timeout: 120000,
     maxContentLength: Infinity,
@@ -345,7 +346,7 @@ async function fetchDynamicCobaltInstances (): Promise<string[]> {
 
   for (const feed of feeds) {
     try {
-      const { data } = await axios.get(feed, { timeout: 10000 })
+      const { data } = await httpDirect.get(feed, { timeout: 10000 })
       const list = Array.isArray(data)
         ? data
         : Array.isArray(data?.instances)
@@ -428,7 +429,7 @@ async function requestCobaltAudio (
     ...bodyOverrides
   }
 
-  const { data } = await axios.post<CobaltResponse>(endpoint, body, {
+  const { data } = await httpDirect.post<CobaltResponse>(endpoint, body, {
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
@@ -564,7 +565,7 @@ async function fetchHealthyPipedInstances (): Promise<string[]> {
   const urls: string[] = []
 
   try {
-    const { data } = await axios.get('https://piped-instances.kavin.rocks/', {
+    const { data } = await httpDirect.get('https://piped-instances.kavin.rocks/', {
       timeout: 10000
     })
 
@@ -610,7 +611,7 @@ async function fetchPipedAudioStream (
   videoId: string,
   signal?: AbortSignal
 ): Promise<PipedAudioStream> {
-  const { data } = await axios.get(
+  const { data } = await httpDirect.get(
     `${normalizeApiBase(base)}/streams/${videoId}`,
     {
       timeout: 15000,
@@ -705,7 +706,7 @@ async function tryInvidiousRace (videoId: string, outputPath: string): Promise<v
         const tempPath = uniqueTemp(outputPath, 'inv')
         try {
           console.log(`[INVIDIOUS] ${base} — ${videoId}`)
-          const { data } = await axios.get(`${normalizeApiBase(base)}/api/v1/videos/${videoId}`, {
+          const { data } = await httpDirect.get(`${normalizeApiBase(base)}/api/v1/videos/${videoId}`, {
             timeout: 15000,
             signal: abort.signal,
             headers: { 'User-Agent': 'robozap/1.0' }
@@ -762,7 +763,7 @@ export async function probeCobaltHealth (base: string): Promise<{
   const normalized = normalizeApiBase(base)
 
   try {
-    const { data } = await axios.get(normalized, { timeout: 8000 })
+    const { data } = await httpDirect.get(normalized, { timeout: 8000 })
     const version = data?.cobalt?.version ?? 'ok'
     console.log(`[COBALT] GET ${normalized} → v${version}`)
   } catch (error: unknown) {
@@ -771,7 +772,7 @@ export async function probeCobaltHealth (base: string): Promise<{
   }
 
   try {
-    const { data } = await axios.post<CobaltResponse>(
+    const { data } = await httpDirect.post<CobaltResponse>(
       `${normalized}/`,
       {
         url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',

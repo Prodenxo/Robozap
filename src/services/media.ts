@@ -3,7 +3,6 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import fs from 'fs'
 import path from 'path'
-import axios from 'axios'
 import {
   downloadYouTubeAudioProxy,
   enqueueYouTubeDownload,
@@ -11,6 +10,7 @@ import {
   promiseAny
 } from './youtubeDownload'
 import { ensureYtDlpCookiesFile, shouldUseYoutubeCookies, ensureCobaltCookiesJson, hasValidYoutubeCookies } from './youtubeCookies'
+import { httpDirect, isProxyAuthError } from './http'
 
 const execAsync = promisify(exec)
 
@@ -40,7 +40,10 @@ async function fetchYtSessionTokens (): Promise<{ poToken: string, visitorData: 
   for (const url of urls) {
     try {
       console.log(`[YT-SESSION] Tentando tokens: ${url}`)
-      const response = await axios.get<YtSessionResponse>(url, { timeout: 4000 })
+      const response = await httpDirect.get<YtSessionResponse>(url, {
+        timeout: 4000,
+        proxy: false
+      })
       const poToken = response.data?.poToken || response.data?.po_token
       const visitorData = response.data?.visitorData || response.data?.visitor_data
 
@@ -139,10 +142,11 @@ export class MediaService {
         if (results.length >= limit) break
 
         try {
-          const { data } = await axios.get(`${base}/search`, {
+          const { data } = await httpDirect.get(`${base}/search`, {
             params: { q: query, filter },
             timeout: 7000,
-            headers: { 'User-Agent': 'robozap/1.0' }
+            headers: { 'User-Agent': 'robozap/1.0' },
+            proxy: false
           })
 
           const items = Array.isArray(data?.items)
@@ -192,10 +196,11 @@ export class MediaService {
       if (results.length >= limit) break
 
       try {
-        const { data } = await axios.get(`${base}/api/v1/search`, {
+        const { data } = await httpDirect.get(`${base}/api/v1/search`, {
           params: { q: query, type: 'video' },
           timeout: 7000,
-          headers: { 'User-Agent': 'robozap/1.0' }
+          headers: { 'User-Agent': 'robozap/1.0' },
+          proxy: false
         })
 
         const items = Array.isArray(data) ? data : []
@@ -268,7 +273,6 @@ export class MediaService {
     outputPath: string,
     kind: DownloadKind
   ): Promise<void> {
-    // Sempre materializa cookies do env antes
     ensureCobaltCookiesJson()
     const tokens = await fetchYtSessionTokens()
     const strategies = getStrategies(tokens)
@@ -276,127 +280,149 @@ export class MediaService {
     const cookiesFile = shouldUseYoutubeCookies() ? ensureYtDlpCookiesFile() : null
     const cookiesArg = cookiesFile ? `--cookies ${shellQuote(cookiesFile)}` : ''
     const proxyUrl = (process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '').trim()
-    const proxyArg = proxyUrl ? `--proxy ${shellQuote(proxyUrl)}` : ''
+
+    // Se o proxy já deu 407 nesta sessão, nem tenta de novo
+    const tryProxyFirst = Boolean(proxyUrl) && !proxyAuthFailedThisProcess
 
     console.log(
-      `[YT-DLP] Setup: cookies=${cookiesFile ? 'SIM' : 'NÃO'} | proxy=${proxyUrl ? 'SIM' : 'NÃO'} | session=${tokens ? 'SIM' : 'NÃO'}`
+      `[YT-DLP] Setup: cookies=${cookiesFile ? 'SIM' : 'NÃO'} | proxy=${proxyUrl ? (tryProxyFirst ? 'tentar' : 'quebrado/skip') : 'NÃO'} | session=${tokens ? 'SIM' : 'NÃO'}`
     )
 
     if (!cookiesFile && !tokens) {
       console.warn('[YT-DLP] Sem cookies e sem yt-session — YouTube provavelmente vai bloquear')
     }
 
-    let lastError: Error | null = null
     await maybeUpdateYtDlp()
 
-    for (const strategy of strategies) {
-      const outTemplate = kind === 'audio'
-        ? shellQuote(outputPath.replace(/\.mp3$/i, '') + '.%(ext)s')
-        : shellQuote(outputPath)
+    const modes = tryProxyFirst
+      ? [{ useProxy: true, label: '+proxy' }, { useProxy: false, label: 'direto' }]
+      : [{ useProxy: false, label: 'direto' }]
 
-      const command = [
-        'yt-dlp',
-        '--js-runtimes', 'deno',
-        '--no-playlist',
-        '--no-check-certificates',
-        '--geo-bypass',
-        '--retries', '2',
-        '--fragment-retries', '2',
-        '--socket-timeout', '20',
-        proxyArg,
-        cookiesArg,
-        strategy.extraArgs,
-        formatArgs,
-        shellQuote(url),
-        '-o',
-        outTemplate
-      ].filter(Boolean).join(' ')
+    let lastError: Error | null = null
 
-      console.log(
-        `[YT-DLP] Tentativa (${strategy.name})${cookiesFile ? ' +cookies' : ''}${proxyUrl ? ' +proxy' : ''}: ${url}`
-      )
+    for (const mode of modes) {
+      console.log(`[YT-DLP] Modo ${mode.label}`)
 
-      try {
-        const { stderr } = await execAsync(command, {
-          maxBuffer: 12 * 1024 * 1024,
-          timeout: 60000,
-          env: {
-            ...process.env,
-            // Garante proxy também via env do processo filho
-            ...(proxyUrl
-              ? {
-                  HTTP_PROXY: proxyUrl,
-                  HTTPS_PROXY: proxyUrl,
-                  http_proxy: proxyUrl,
-                  https_proxy: proxyUrl
-                }
-              : {})
-          }
-        })
+      for (const strategy of strategies) {
+        const outTemplate = kind === 'audio'
+          ? shellQuote(outputPath.replace(/\.mp3$/i, '') + '.%(ext)s')
+          : shellQuote(outputPath)
 
-        if (stderr) {
-          const hint = stderr.split('\n').filter(Boolean).slice(-3).join(' | ')
-          if (hint) console.log(`[YT-DLP] stderr: ${hint.slice(0, 400)}`)
+        const proxyArg = mode.useProxy && proxyUrl
+          ? `--proxy ${shellQuote(proxyUrl)}`
+          : ''
+
+        const command = [
+          'yt-dlp',
+          '--js-runtimes', 'deno',
+          '--no-playlist',
+          '--no-check-certificates',
+          '--geo-bypass',
+          '--retries', '2',
+          '--fragment-retries', '2',
+          '--socket-timeout', '20',
+          proxyArg,
+          cookiesArg,
+          strategy.extraArgs,
+          formatArgs,
+          shellQuote(url),
+          '-o',
+          outTemplate
+        ].filter(Boolean).join(' ')
+
+        console.log(
+          `[YT-DLP] Tentativa (${strategy.name})${cookiesFile ? ' +cookies' : ''} ${mode.label}: ${url}`
+        )
+
+        const childEnv: NodeJS.ProcessEnv = { ...process.env }
+        if (mode.useProxy && proxyUrl) {
+          childEnv.HTTP_PROXY = proxyUrl
+          childEnv.HTTPS_PROXY = proxyUrl
+          childEnv.http_proxy = proxyUrl
+          childEnv.https_proxy = proxyUrl
+        } else {
+          delete childEnv.HTTP_PROXY
+          delete childEnv.HTTPS_PROXY
+          delete childEnv.http_proxy
+          delete childEnv.https_proxy
+          delete childEnv.ALL_PROXY
+          delete childEnv.all_proxy
         }
 
-        if (kind === 'audio') {
-          const stem = outputPath.replace(/\.mp3$/i, '')
-          const dir = path.dirname(outputPath)
-          const stemBase = path.basename(stem)
-          const candidates = fs.readdirSync(dir)
-            .filter((name) => name === `${stemBase}.mp3` || name.startsWith(`${stemBase}.`))
-            .map((name) => path.join(dir, name))
-
-          let source =
-            candidates.find((file) => file.toLowerCase().endsWith('.mp3')) ||
-            candidates[0]
-
-          if (!source && fs.existsSync(outputPath)) {
-            source = outputPath
-          }
-
-          if (!source) throw new Error('Arquivo não gerado pelo yt-dlp')
-
-          if (source !== outputPath) {
-            if (source.toLowerCase().endsWith('.mp3')) {
-              if (fs.existsSync(outputPath)) safeUnlink(outputPath)
-              fs.renameSync(source, outputPath)
-            } else {
-              const convertCommand = `ffmpeg -y -hide_banner -loglevel error -i ${shellQuote(source)} -vn -acodec libmp3lame -q:a 0 ${shellQuote(outputPath)}`
-              await execAsync(convertCommand, { timeout: 120000 })
-              safeUnlink(source)
-            }
-          }
-
-          if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 8192) {
-            throw new Error('MP3 inválido após yt-dlp')
-          }
-
-          console.log(`[YT-DLP] Sucesso (${strategy.name})`)
-          return
-        }
-
-        if (fs.existsSync(outputPath)) {
-          console.log(`[YT-DLP] Sucesso (${strategy.name})`)
-          return
-        }
-
-        lastError = new Error('Arquivo não gerado após o download.')
-      } catch (error: unknown) {
         try {
-          const stem = outputPath.replace(/\.mp3$/i, '')
-          const dir = path.dirname(outputPath)
-          const stemBase = path.basename(stem)
-          for (const name of fs.readdirSync(dir)) {
-            if (name.startsWith(stemBase + '.')) {
-              safeUnlink(path.join(dir, name))
-            }
-          }
-        } catch { /* ignore */ }
+          const { stderr } = await execAsync(command, {
+            maxBuffer: 12 * 1024 * 1024,
+            timeout: 60000,
+            env: childEnv
+          })
 
-        const message = error instanceof Error ? error.message : String(error)
-        console.error(`[YT-DLP] Falha (${strategy.name}):`, message.slice(0, 300))
-        lastError = error instanceof Error ? error : new Error(message)
+          if (stderr) {
+            const hint = stderr.split('\n').filter(Boolean).slice(-3).join(' | ')
+            if (hint) console.log(`[YT-DLP] stderr: ${hint.slice(0, 400)}`)
+          }
+
+          if (kind === 'audio') {
+            const stem = outputPath.replace(/\.mp3$/i, '')
+            const dir = path.dirname(outputPath)
+            const stemBase = path.basename(stem)
+            const foundFiles = fs.readdirSync(dir)
+              .filter((name) => name === `${stemBase}.mp3` || name.startsWith(`${stemBase}.`))
+              .map((name) => path.join(dir, name))
+
+            let source =
+              foundFiles.find((file) => file.toLowerCase().endsWith('.mp3')) ||
+              foundFiles[0]
+
+            if (!source && fs.existsSync(outputPath)) source = outputPath
+            if (!source) throw new Error('Arquivo não gerado pelo yt-dlp')
+
+            if (source !== outputPath) {
+              if (source.toLowerCase().endsWith('.mp3')) {
+                if (fs.existsSync(outputPath)) safeUnlink(outputPath)
+                fs.renameSync(source, outputPath)
+              } else {
+                const convertCommand = `ffmpeg -y -hide_banner -loglevel error -i ${shellQuote(source)} -vn -acodec libmp3lame -q:a 0 ${shellQuote(outputPath)}`
+                await execAsync(convertCommand, { timeout: 120000 })
+                safeUnlink(source)
+              }
+            }
+
+            if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 8192) {
+              throw new Error('MP3 inválido após yt-dlp')
+            }
+
+            console.log(`[YT-DLP] Sucesso (${strategy.name} / ${mode.label})`)
+            return
+          }
+
+          if (fs.existsSync(outputPath)) {
+            console.log(`[YT-DLP] Sucesso (${strategy.name} / ${mode.label})`)
+            return
+          }
+
+          lastError = new Error('Arquivo não gerado após o download.')
+        } catch (error: unknown) {
+          try {
+            const stem = outputPath.replace(/\.mp3$/i, '')
+            const dir = path.dirname(outputPath)
+            const stemBase = path.basename(stem)
+            for (const name of fs.readdirSync(dir)) {
+              if (name.startsWith(stemBase + '.')) {
+                safeUnlink(path.join(dir, name))
+              }
+            }
+          } catch { /* ignore */ }
+
+          const message = error instanceof Error ? error.message : String(error)
+          console.error(`[YT-DLP] Falha (${strategy.name} / ${mode.label}):`, message.slice(0, 350))
+          lastError = error instanceof Error ? error : new Error(message)
+
+          if (mode.useProxy && isProxyAuthError(message)) {
+            proxyAuthFailedThisProcess = true
+            console.warn('[YT-DLP] Proxy 407 — pulando proxy e tentando conexão direta + cookies')
+            break // sai das strategies, vai pro modo direto
+          }
+        }
       }
     }
 
@@ -420,9 +446,8 @@ export class MediaService {
       ensureCobaltCookiesJson()
       const hasCookies = hasValidYoutubeCookies() && shouldUseYoutubeCookies()
       const hasProxy = Boolean((process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '').trim())
-      const preferYtDlp = hasCookies || hasProxy
-
-      console.log(`[MEDIA] Estratégia: preferYtDlp=${preferYtDlp} cookies=${hasCookies} proxy=${hasProxy}`)
+      const preferYtDlp = hasCookies
+      console.log(`[MEDIA] Estratégia: preferYtDlp=${preferYtDlp} cookies=${hasCookies} proxyEnv=${hasProxy} proxyBroken=${proxyAuthFailedThisProcess}`)
 
       for (let i = 0; i < candidates.length; i++) {
         const url = candidates[i]
@@ -520,14 +545,24 @@ function safeUnlink (filePath: string): void {
 }
 
 let ytDlpUpdatedThisProcess = false
+let proxyAuthFailedThisProcess = false
 
 async function maybeUpdateYtDlp (): Promise<void> {
   if (ytDlpUpdatedThisProcess) return
   ytDlpUpdatedThisProcess = true
 
   try {
-    console.log('[YT-DLP] Atualizando yt-dlp (best-effort)...')
-    await execAsync('yt-dlp -U', { timeout: 60000, maxBuffer: 2 * 1024 * 1024 })
+    console.log('[YT-DLP] Atualizando yt-dlp (best-effort, sem proxy)...')
+    const env = { ...process.env }
+    delete env.HTTP_PROXY
+    delete env.HTTPS_PROXY
+    delete env.http_proxy
+    delete env.https_proxy
+    await execAsync('yt-dlp -U', {
+      timeout: 60000,
+      maxBuffer: 2 * 1024 * 1024,
+      env
+    })
     console.log('[YT-DLP] Atualizado')
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)

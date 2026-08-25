@@ -12,7 +12,7 @@ import {
   hasValidYoutubeCookies
 } from './services/youtubeCookies';
 
-const MUSIC_BUILD = '2026-08-tocar-proxy-fix-v7';
+const MUSIC_BUILD = '2026-08-tocar-proxy407-v8';
 
 const app = express();
 const PORT = process.env.PORT || 3000;

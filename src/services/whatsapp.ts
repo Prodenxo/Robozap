@@ -1,14 +1,17 @@
-import axios from 'axios';
-import dotenv from 'dotenv';
-import fs from 'fs';
-import path from 'path';
-import { prisma } from './database';
-import { LidMapService } from './lidMap';
-import { normalizePhoneKey, formatBrazilDisplayPhone, collectJidAliases, getParticipantDedupeKey, isPlaceholderPushName } from './activity';
+import dotenv from 'dotenv'
+import fs from 'fs'
+import path from 'path'
+import { prisma } from './database'
+import { LidMapService } from './lidMap'
+import { normalizePhoneKey, formatBrazilDisplayPhone, collectJidAliases, getParticipantDedupeKey, isPlaceholderPushName } from './activity'
+import { httpDirect } from './http'
 
-dotenv.config();
+dotenv.config()
 
-const cleanValue = (val: string | undefined) => val?.replace(/['"]+/g, '').trim() || '';
+/** Cliente HTTP sem proxy — Evolution/WhatsApp não pode passar pelo proxy residencial quebrado. */
+const http = httpDirect
+
+const cleanValue = (val: string | undefined) => val?.replace(/['"]+/g, '').trim() || ''
 
 function extractParticipantDisplayName (participant: any): string | null {
   const name =
@@ -138,7 +141,7 @@ export class WhatsAppService {
       }
 
       console.log(`[WHATSAPP] POST /message/sendText: Payload: ${JSON.stringify(payload)}`);
-      const response = await axios.post(`${this.baseUrl}/message/sendText/${this.instance}`, payload, { headers: this.headers });
+      const response = await http.post(`${this.baseUrl}/message/sendText/${this.instance}`, payload, { headers: this.headers });
       console.log(`[WHATSAPP] POST /message/sendText response status: ${response.status}`);
     } catch (error: any) {
       console.error('[WHATSAPP] Error sending message:', error.response?.data || error.message);
@@ -164,7 +167,7 @@ export class WhatsAppService {
         }
       });
 
-      const response = await axios.post(`${this.baseUrl}/group/updateParticipant/${this.instance}`, {
+      const response = await http.post(`${this.baseUrl}/group/updateParticipant/${this.instance}`, {
         groupJid: groupJid,
         action: action,
         participants: resolvedParticipants
@@ -229,7 +232,7 @@ export class WhatsAppService {
     const resolved = Array.from(new Set(participants.map(resolveForRemove)))
 
     try {
-      const response = await axios.post(
+      const response = await http.post(
         `${this.baseUrl}/group/updateParticipant/${this.instance}`,
         {
           groupJid,
@@ -265,7 +268,7 @@ export class WhatsAppService {
 
       for (const participant of resolved) {
         try {
-          await axios.post(
+          await http.post(
             `${this.baseUrl}/group/updateParticipant/${this.instance}`,
             {
               groupJid,
@@ -290,7 +293,7 @@ export class WhatsAppService {
 
   async getGroupInviteCode(groupJid: string): Promise<string | null> {
     try {
-      const response = await axios.get(`${this.baseUrl}/group/inviteCode/${this.instance}?groupJid=${groupJid}`, {
+      const response = await http.get(`${this.baseUrl}/group/inviteCode/${this.instance}?groupJid=${groupJid}`, {
         headers: this.headers
       });
       return response.data?.code || response.data?.inviteCode || response.data || null;
@@ -311,7 +314,7 @@ export class WhatsAppService {
 
       console.log(`[WHATSAPP] Sending sticker to ${remoteJid}. Length: ${stickerData.length}, Start: ${stickerData.substring(0, 20)}`);
 
-      await axios.post(`${this.baseUrl}/message/sendSticker/${this.instance}`, {
+      await http.post(`${this.baseUrl}/message/sendSticker/${this.instance}`, {
         number: remoteJid,
         sticker: stickerData
       }, { 
@@ -326,7 +329,7 @@ export class WhatsAppService {
   async getBase64FromMessage(key: any) {
     try {
       console.log(`[WHATSAPP] Fetching base64 for ID: ${key.id}, Remote: ${key.remoteJid}, fromMe: ${key.fromMe}, Participant: ${key.participant}`);
-      const response = await axios.post(`${this.baseUrl}/chat/getBase64FromMediaMessage/${this.instance}`, {
+      const response = await http.post(`${this.baseUrl}/chat/getBase64FromMediaMessage/${this.instance}`, {
         message: {
           key: key
         }
@@ -347,7 +350,7 @@ export class WhatsAppService {
     participant?: string
   }): Promise<any | null> {
     try {
-      const response = await axios.post(
+      const response = await http.post(
         `${this.baseUrl}/chat/findMessages/${this.instance}`,
         {
           where: {
@@ -387,7 +390,7 @@ export class WhatsAppService {
     try {
       if (!jid || typeof jid !== 'string') return '';
       const number = jid.split('@')[0];
-      const response = await axios.get(`${this.baseUrl}/chat/profilePicture/${this.instance}?number=${number}`, {
+      const response = await http.get(`${this.baseUrl}/chat/profilePicture/${this.instance}?number=${number}`, {
         headers: this.headers
       });
       return response.data?.profilePictureUrl || response.data?.url || '';
@@ -402,7 +405,7 @@ export class WhatsAppService {
   async getBotJid(): Promise<string> {
     if (this.botJid) return this.botJid;
     try {
-      const response = await axios.get(`${this.baseUrl}/instance/connectionState/${this.instance}`, {
+      const response = await http.get(`${this.baseUrl}/instance/connectionState/${this.instance}`, {
         headers: this.headers
       });
       const jid = response.data?.instance?.owner;
@@ -418,7 +421,7 @@ export class WhatsAppService {
 
   async deleteMessage(remoteJid: string, messageId: string, fromMe: boolean = false, participantJid?: string) {
     try {
-      await axios.delete(`${this.baseUrl}/chat/deleteMessageForEveryone/${this.instance}`, {
+      await http.delete(`${this.baseUrl}/chat/deleteMessageForEveryone/${this.instance}`, {
         data: {
           remoteJid,
           id: messageId,
@@ -435,7 +438,7 @@ export class WhatsAppService {
 
   async updateGroupSetting(groupJid: string, action: 'announcement' | 'not_announcement' | 'locked' | 'unlocked') {
     try {
-      await axios.post(`${this.baseUrl}/group/updateSetting/${this.instance}?groupJid=${groupJid}`, {
+      await http.post(`${this.baseUrl}/group/updateSetting/${this.instance}?groupJid=${groupJid}`, {
         action
       }, { headers: this.headers });
       console.log(`[WHATSAPP] Group ${groupJid} setting updated: ${action}`);
@@ -553,7 +556,7 @@ export class WhatsAppService {
       }
 
       console.log(`[WHATSAPP] POST /message/sendMedia: Payload (without base64): ${JSON.stringify({ ...payload, media: payload.media ? '(base64 string)' : undefined })}`);
-      const response = await axios.post(`${this.baseUrl}/message/sendMedia/${this.instance}`, payload, { headers: this.headers });
+      const response = await http.post(`${this.baseUrl}/message/sendMedia/${this.instance}`, payload, { headers: this.headers });
       console.log(`[WHATSAPP] POST /message/sendMedia response status: ${response.status}`);
       return response.data;
     } catch (error: any) {
@@ -564,7 +567,7 @@ export class WhatsAppService {
 
   async sendReaction(remoteJid: string, messageId: string, emoji: string, fromMe: boolean = true) {
     try {
-      await axios.post(`${this.baseUrl}/message/sendReaction/${this.instance}`, {
+      await http.post(`${this.baseUrl}/message/sendReaction/${this.instance}`, {
         key: {
           remoteJid: remoteJid,
           fromMe: fromMe,
@@ -580,7 +583,7 @@ export class WhatsAppService {
   async getContact(number: string) {
     try {
       const payload = number.includes('@') ? number : number.replace(/\D/g, '')
-      const response = await axios.post(`${this.baseUrl}/contact/getContact/${this.instance}`, {
+      const response = await http.post(`${this.baseUrl}/contact/getContact/${this.instance}`, {
         number: payload
       }, { headers: this.headers });
       
@@ -594,12 +597,12 @@ export class WhatsAppService {
   private async fetchGroupParticipantsFromApi (groupJid: string): Promise<any[]> {
     let response;
     try {
-      response = await axios.get(`${this.baseUrl}/group/participants/${this.instance}?groupJid=${groupJid}`, {
+      response = await http.get(`${this.baseUrl}/group/participants/${this.instance}?groupJid=${groupJid}`, {
         headers: this.headers
       });
     } catch (e1: any) {
       console.warn(`[SYNC WARNING] /group/participants failed (${e1.message}), trying legacy /group/getParticipants...`);
-      response = await axios.get(`${this.baseUrl}/group/getParticipants/${this.instance}?groupJid=${groupJid}`, {
+      response = await http.get(`${this.baseUrl}/group/getParticipants/${this.instance}?groupJid=${groupJid}`, {
         headers: this.headers
       });
     }
@@ -1278,11 +1281,11 @@ export class WhatsAppService {
     try {
       let response;
       try {
-        response = await axios.get(`${this.baseUrl}/group/findGroupInfos/${this.instance}?groupJid=${groupJid}`, {
+        response = await http.get(`${this.baseUrl}/group/findGroupInfos/${this.instance}?groupJid=${groupJid}`, {
           headers: this.headers
         });
       } catch (e) {
-        response = await axios.get(`${this.baseUrl}/group/findGroup/${this.instance}?groupJid=${groupJid}`, {
+        response = await http.get(`${this.baseUrl}/group/findGroup/${this.instance}?groupJid=${groupJid}`, {
           headers: this.headers
         });
       }
