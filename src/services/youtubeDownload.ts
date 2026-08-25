@@ -12,45 +12,41 @@ const INSTANCE_CACHE_MS = 30 * 60 * 1000
 const BLACKLIST_MS = 15 * 60 * 1000
 const BLACKLIST_SOFT_MS = 2 * 60 * 1000
 const COBALT_WINNER_CACHE_MS = 45 * 60 * 1000
-const COBALT_PARALLEL_POOL = 5
-const COBALT_REQUEST_TIMEOUT_MS = 12000
+const COBALT_PARALLEL_POOL = 3
+const COBALT_REQUEST_TIMEOUT_MS = 30000
+/** Tempo total pra Cobalt baixar (API + stream). Log mostrou OK depois de ~25s+ — precisa folga. */
+const COBALT_PHASE_MS = 55000
 const PHASE_TIMEOUT_MS = 25000
 const MIN_AUDIO_BYTES = 8 * 1024
 
-const FALLBACK_PIPED_BASES = [
-  'https://pipedapi.kavin.rocks',
-  'https://pipedapi.syncpundit.io',
-  'https://api-piped.mha.fi',
-  'https://pipedapi.tokhmi.xyz',
-  'https://piped-api.lunar.icu',
-  'https://pipedapi.adminforge.de',
-  'https://pipedapi.nosebs.ru',
-  'https://pipedapi.ducks.party',
-  'https://api.piped.private.coffee',
-  'https://pipedapi.reallyaweso.me'
-]
-
-const FALLBACK_INVIDIOUS_BASES = [
-  'https://inv.nadeko.net',
-  'https://invidious.nerdvpn.de',
-  'https://yewtu.be',
-  'https://invidious.fdn.fr',
-  'https://vid.puffyan.us',
-  'https://invidious.privacyredirect.com',
-  'https://inv.tux.pizza'
-]
-
-const FALLBACK_COBALT_PUBLIC = [
-  'https://api.cobalt.best',
-  'https://cobalt-backend.canine.tools',
+/** Instâncias públicas conhecidas por funcionar (ordem = prioridade). */
+const TRUSTED_COBALT_PUBLIC = [
   'https://api.cobalt.liubquanti.click',
-  'https://api.qwkuns.me',
   'https://api.cobalt.blackcat.sweeux.org',
-  'https://fox.kittycat.boo',
-  'https://dog.kittycat.boo',
   'https://co.wuk.sh',
   'https://cobalt-api.kwiatekmieniany.pl',
   'https://api.cobalt.solidsoftware.dev'
+]
+
+const FALLBACK_PIPED_BASES = [
+  'https://api-piped.mha.fi',
+  'https://api.piped.private.coffee',
+  'https://pipedapi.kavin.rocks'
+]
+
+const FALLBACK_INVIDIOUS_BASES = [
+  'https://inv.tux.pizza',
+  'https://inv.nadeko.net',
+  'https://invidious.nerdvpn.de'
+]
+
+const FALLBACK_COBALT_PUBLIC = [
+  ...TRUSTED_COBALT_PUBLIC,
+  'https://api.cobalt.best',
+  'https://cobalt-backend.canine.tools',
+  'https://api.qwkuns.me',
+  'https://fox.kittycat.boo',
+  'https://dog.kittycat.boo'
 ]
 
 const COBALT_JWT_BASES = new Set([
@@ -385,11 +381,12 @@ async function resolveCobaltBases (): Promise<string[]> {
   const extraPublic = envList('COBALT_PUBLIC_URL')
   const localBases = fromEnv.length ? fromEnv : ['http://cobalt:9000']
 
+  // Feed dinâmico é lento/instável — não bloqueia e não vai no topo
   let dynamic: string[] = []
   try {
     dynamic = await Promise.race([
       fetchDynamicCobaltInstances(),
-      new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 2500))
+      new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 1500))
     ])
   } catch {
     dynamic = []
@@ -397,13 +394,14 @@ async function resolveCobaltBases (): Promise<string[]> {
 
   const hasApiKey = Boolean(process.env.COBALT_API_KEY?.trim())
   const publicBases = uniqueBases([
-    'https://api.cobalt.liubquanti.click',
     ...extraPublic,
+    ...TRUSTED_COBALT_PUBLIC,
     ...dynamic,
     ...FALLBACK_COBALT_PUBLIC
   ]).filter((base) => hasApiKey || !COBALT_JWT_BASES.has(normalizeApiBase(base)))
 
-  let ordered = uniqueBases([...localBases, ...publicBases])
+  // Público ANTES do local: local sem session só gasta slot com youtube.login
+  let ordered = uniqueBases([...publicBases, ...localBases])
 
   if (
     cobaltWinnerCache &&
@@ -415,6 +413,18 @@ async function resolveCobaltBases (): Promise<string[]> {
   }
 
   return filterLive(ordered)
+}
+
+function pickPreferredCobaltBases (ordered: string[]): string[] {
+  const envPublic = envList('COBALT_PUBLIC_URL').map(normalizeApiBase)
+  const preferred = ordered.filter((base) => {
+    const n = normalizeApiBase(base)
+    if (envPublic.includes(n)) return true
+    if (TRUSTED_COBALT_PUBLIC.some((t) => normalizeApiBase(t) === n)) return true
+    if (cobaltWinnerCache && normalizeApiBase(cobaltWinnerCache.base) === n) return true
+    return false
+  })
+  return (preferred.length ? preferred : ordered).slice(0, COBALT_PARALLEL_POOL)
 }
 
 async function requestCobaltAudio (
@@ -502,59 +512,111 @@ async function attemptCobaltDownload (
   }
 }
 
-async function tryCobaltRace (url: string, outputPath: string, bases: string[]): Promise<void> {
+async function tryCobaltRace (
+  url: string,
+  outputPath: string,
+  bases: string[],
+  parentSignal?: AbortSignal
+): Promise<void> {
   const pool = bases.slice(0, COBALT_PARALLEL_POOL)
   const variant = COBALT_REQUEST_VARIANTS[0]
   const abort = new AbortController()
   let lastError: Error | null = null
 
+  const onParentAbort = (): void => abort.abort()
+  parentSignal?.addEventListener('abort', onParentAbort)
+
   console.log(`[COBALT] Corrida em ${pool.length} instâncias`)
 
-  await new Promise<void>((resolve, reject) => {
-    let pending = pool.length
-    let settled = false
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let pending = pool.length
+      let settled = false
 
-    if (pending === 0) {
-      reject(new Error('Nenhuma instância Cobalt disponível.'))
-      return
-    }
+      if (pending === 0) {
+        reject(new Error('Nenhuma instância Cobalt disponível.'))
+        return
+      }
 
-    for (const base of pool) {
-      void attemptCobaltDownload(url, outputPath, base, variant, abort.signal)
-        .then((winner) => {
-          if (settled) return
-          settled = true
-          abort.abort()
-          cobaltWinnerCache = { base: winner, fetchedAt: Date.now() }
-          console.log(`[COBALT] OK via ${winner}`)
-          resolve()
-        })
-        .catch((error: unknown) => {
-          if (abort.signal.aborted || settled) return
-          const message = getAxiosErrorDetail(error)
-          if (!shouldBlacklistFromError(message)) {
-            console.warn(`[COBALT] Falha ${base}: ${message}`)
-          }
-          lastError = new Error(message)
-          pending -= 1
-          if (pending === 0) {
-            reject(lastError ?? new Error('Corrida Cobalt falhou.'))
-          }
-        })
-    }
-  })
+      if (parentSignal?.aborted) {
+        reject(new Error('abort'))
+        return
+      }
+
+      for (const base of pool) {
+        void attemptCobaltDownload(url, outputPath, base, variant, abort.signal)
+          .then((winner) => {
+            if (settled || abort.signal.aborted) return
+            settled = true
+            abort.abort()
+            cobaltWinnerCache = { base: winner, fetchedAt: Date.now() }
+            console.log(`[COBALT] OK via ${winner}`)
+            resolve()
+          })
+          .catch((error: unknown) => {
+            if (abort.signal.aborted || settled) return
+            const message = getAxiosErrorDetail(error)
+            if (!shouldBlacklistFromError(message)) {
+              console.warn(`[COBALT] Falha ${base}: ${message}`)
+            }
+            lastError = new Error(message)
+            pending -= 1
+            if (pending === 0) {
+              reject(lastError ?? new Error('Corrida Cobalt falhou.'))
+            }
+          })
+      }
+    })
+  } finally {
+    parentSignal?.removeEventListener('abort', onParentAbort)
+  }
 }
 
 async function tryCobaltDownload (url: string, outputPath: string): Promise<void> {
   const ordered = await resolveCobaltBases()
   if (!ordered.length) throw new Error('Nenhuma instância Cobalt disponível')
 
-  // Só corrida rápida — sem sequencial infinito (era isso que travava 3+ min)
-  await withTimeout(
-    tryCobaltRace(url, outputPath, ordered),
-    PHASE_TIMEOUT_MS,
-    'cobalt'
-  )
+  const preferred = pickPreferredCobaltBases(ordered)
+  console.log(`[COBALT] Preferidas: ${preferred.join(', ')}`)
+
+  const runWithBudget = async (bases: string[], ms: number, label: string): Promise<void> => {
+    const abort = new AbortController()
+    let finished = false
+    const timer = setTimeout(() => abort.abort(), ms)
+    try {
+      await Promise.race([
+        tryCobaltRace(url, outputPath, bases, abort.signal),
+        new Promise<never>((_resolve, reject) => {
+          abort.signal.addEventListener('abort', () => {
+            if (!finished) reject(new Error(`Timeout ${label} (${ms}ms)`))
+          })
+        })
+      ])
+      finished = true
+    } finally {
+      finished = true
+      clearTimeout(timer)
+      if (!abort.signal.aborted) abort.abort()
+    }
+  }
+
+  try {
+    await runWithBudget(preferred, COBALT_PHASE_MS, 'cobalt-preferred')
+    return
+  } catch (firstError: unknown) {
+    const message = firstError instanceof Error ? firstError.message : String(firstError)
+    console.warn(`[COBALT] Preferidas falharam: ${message.slice(0, 200)}`)
+  }
+
+  const rest = ordered.filter(
+    (base) => !preferred.some((p) => normalizeApiBase(p) === normalizeApiBase(base))
+  ).slice(0, COBALT_PARALLEL_POOL)
+
+  if (!rest.length) {
+    throw new Error('Cobalt preferido falhou e sem fallback')
+  }
+
+  await runWithBudget(rest, PHASE_TIMEOUT_MS, 'cobalt-fallback')
 }
 
 // ─── Piped ────────────────────────────────────────────────
@@ -828,7 +890,8 @@ export async function enqueueYouTubeDownload<T> (task: () => Promise<T>): Promis
 }
 
 /**
- * Baixa áudio com timeout duro por fase (~25s max em proxies).
+ * Cobalt primeiro (timeout longo). Piped/Invidious só se MUSIC_ENABLE_PUBLIC_PROXIES=true —
+ * no teu servidor eles só comem os 25s e o Cobalt bom chega tarde demais.
  */
 export async function downloadYouTubeAudioProxy (
   url: string,
@@ -839,55 +902,49 @@ export async function downloadYouTubeAudioProxy (
 
   const errors: string[] = []
   const cobaltTemp = uniqueTemp(outputPath, 'phase-cobalt')
-  const pipedTemp = uniqueTemp(outputPath, 'phase-piped')
-  const invTemp = uniqueTemp(outputPath, 'phase-inv')
+  const enableExtraProxies = process.env.MUSIC_ENABLE_PUBLIC_PROXIES === 'true'
 
   try {
     try {
-      const winner = await withTimeout(
-        promiseAny([
-          tryCobaltDownload(url, cobaltTemp).then(() => 'cobalt' as const),
-          tryPipedRace(videoId, pipedTemp).then(() => 'piped' as const)
-        ]),
-        PHASE_TIMEOUT_MS,
-        'cobalt+piped'
-      )
-
-      const source = winner === 'cobalt' ? cobaltTemp : pipedTemp
-      const other = winner === 'cobalt' ? pipedTemp : cobaltTemp
-      moveToOutput(source, outputPath)
-      safeUnlink(other)
-      console.log(`[MEDIA] Áudio OK via ${winner}`)
-      return
-    } catch (aggregateError: unknown) {
-      const list =
-        aggregateError &&
-        typeof aggregateError === 'object' &&
-        'errors' in aggregateError
-          ? (aggregateError as { errors: unknown[] }).errors
-          : [aggregateError]
-
-      for (const item of list) {
-        errors.push(item instanceof Error ? item.message : String(item))
-      }
-      console.warn('[MEDIA] Fase Cobalt/Piped falhou:', errors.slice(0, 3).join(' | '))
-    }
-
-    try {
-      await withTimeout(tryInvidiousRace(videoId, invTemp), 12000, 'invidious')
-      moveToOutput(invTemp, outputPath)
-      console.log('[MEDIA] Áudio OK via Invidious')
+      await tryCobaltDownload(url, cobaltTemp)
+      moveToOutput(cobaltTemp, outputPath)
+      console.log('[MEDIA] Áudio OK via cobalt')
       return
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error)
-      errors.push(`invidious: ${message}`)
-      console.warn('[MEDIA] Invidious falhou:', message)
+      errors.push(`cobalt: ${message}`)
+      console.warn('[MEDIA] Cobalt falhou:', message.slice(0, 300))
     }
 
-    throw new Error(errors.slice(0, 4).join(' | ') || 'Falha ao baixar áudio via proxies.')
+    if (enableExtraProxies) {
+      const pipedTemp = uniqueTemp(outputPath, 'phase-piped')
+      const invTemp = uniqueTemp(outputPath, 'phase-inv')
+      try {
+        try {
+          await withTimeout(tryPipedRace(videoId, pipedTemp), 20000, 'piped')
+          moveToOutput(pipedTemp, outputPath)
+          console.log('[MEDIA] Áudio OK via piped')
+          return
+        } catch (error: unknown) {
+          errors.push(`piped: ${error instanceof Error ? error.message : String(error)}`)
+        }
+
+        try {
+          await withTimeout(tryInvidiousRace(videoId, invTemp), 12000, 'invidious')
+          moveToOutput(invTemp, outputPath)
+          console.log('[MEDIA] Áudio OK via Invidious')
+          return
+        } catch (error: unknown) {
+          errors.push(`invidious: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      } finally {
+        safeUnlink(pipedTemp)
+        safeUnlink(invTemp)
+      }
+    }
+
+    throw new Error(errors.slice(0, 4).join(' | ') || 'Falha ao baixar áudio via Cobalt.')
   } finally {
     safeUnlink(cobaltTemp)
-    safeUnlink(pipedTemp)
-    safeUnlink(invTemp)
   }
 }

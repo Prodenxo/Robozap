@@ -16,7 +16,7 @@ import {
 } from './services/youtubeCookies'
 import { getYtDlpProxyUrl } from './proxyBootstrap'
 
-const MUSIC_BUILD = '2026-08-tocar-nocookie-v11'
+const MUSIC_BUILD = '2026-08-tocar-cobalt-wait-v12'
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -86,7 +86,7 @@ async function logMusicBackendStatus (): Promise<void> {
   }
 
   console.log(
-    '[ROBOZAP] .tocar v11: Cobalt-first SEM cookie obrigatório → yt-dlp fallback'
+    '[ROBOZAP] .tocar v12: Cobalt preferido 55s (liubquanti) — sem Piped/cookie'
   );
 }
 

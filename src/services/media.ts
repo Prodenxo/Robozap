@@ -446,7 +446,7 @@ export class MediaService {
       const errors: string[] = []
       if (shouldUseYoutubeCookies()) ensureCobaltCookiesJson()
 
-      console.log('[MEDIA] Estratégia: Cobalt-first (sem cookie obrigatório) → yt-dlp fallback')
+      console.log('[MEDIA] Estratégia: Cobalt preferido (55s) — sem cookie; yt-dlp só se cookies/opt-in')
 
       for (let i = 0; i < candidates.length; i++) {
         const url = candidates[i]
@@ -462,13 +462,19 @@ export class MediaService {
               if (fs.existsSync(outputPath)) safeUnlink(outputPath)
               fs.renameSync(proxyTemp, outputPath)
               safeUnlink(ytdlpTemp)
-              console.log(`[MEDIA] Áudio OK via Cobalt/Piped (candidato ${i + 1})`)
+              console.log(`[MEDIA] Áudio OK via Cobalt (candidato ${i + 1})`)
               return url
             }
           } catch (proxyError: unknown) {
             const message = proxyError instanceof Error ? proxyError.message : String(proxyError)
-            console.error(`[MEDIA] Cobalt/Piped falhou:`, message.slice(0, 300))
+            console.error(`[MEDIA] Cobalt falhou:`, message.slice(0, 300))
             errors.push(`proxy[${i}]: ${message}`)
+          }
+
+          // Sem cookie, yt-dlp no IP do servidor quase sempre toma "Sign in to confirm you're not a bot"
+          if (!shouldUseYoutubeCookies()) {
+            console.warn('[MEDIA] Pulando yt-dlp (sem cookies) — só atrasa')
+            throw new Error(errors[errors.length - 1] || 'Cobalt falhou')
           }
 
           try {
