@@ -12,12 +12,11 @@ import { probeCobaltHealth } from './services/youtubeDownload'
 import {
   ensureCobaltCookiesJson,
   ensureYtDlpCookiesFile,
-  shouldUseYoutubeCookies,
-  hasValidYoutubeCookies
+  shouldUseYoutubeCookies
 } from './services/youtubeCookies'
 import { getYtDlpProxyUrl } from './proxyBootstrap'
 
-const MUSIC_BUILD = '2026-08-tocar-cobalt-first-v10'
+const MUSIC_BUILD = '2026-08-tocar-nocookie-v11'
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -44,18 +43,21 @@ app.post('/webhook/evolution', async (req, res) => {
 async function logMusicBackendStatus (): Promise<void> {
   console.log(`[ROBOZAP] Music build: ${MUSIC_BUILD}`);
 
-  // Materializa cookies do env → cookies.json + netscape pro yt-dlp
-  const jsonPath = ensureCobaltCookiesJson()
-  const netscapePath = shouldUseYoutubeCookies() ? ensureYtDlpCookiesFile() : null
-  console.log(
-    `[ROBOZAP] Cookies YouTube: ${hasValidYoutubeCookies() ? 'SIM' : 'NÃO'} | ` +
-    `usar=${shouldUseYoutubeCookies()} | json=${jsonPath || 'none'} | ytdlp=${netscapePath || 'none'}`
-  )
+  const cookiesOptIn = shouldUseYoutubeCookies()
+  if (cookiesOptIn) {
+    const jsonPath = ensureCobaltCookiesJson()
+    const netscapePath = ensureYtDlpCookiesFile()
+    console.log(
+      `[ROBOZAP] Cookies YouTube (opt-in): SIM | json=${jsonPath || 'none'} | ytdlp=${netscapePath || 'none'}`
+    )
+  } else {
+    console.log('[ROBOZAP] Cookies YouTube: NÃO (modo sem cookie — Cobalt público/local)')
+  }
 
   if (getYtDlpProxyUrl()) {
-    console.log('[ROBOZAP] Proxy guardado só pro yt-dlp (WhatsApp/Evolution SEM proxy)')
+    console.log('[ROBOZAP] Proxy só pra yt-dlp (WhatsApp/Evolution sem proxy)')
   } else {
-    console.log('[ROBOZAP] Sem proxy — WhatsApp/Evolution direto; yt-dlp com cookies')
+    console.log('[ROBOZAP] Sem proxy — Cobalt-first, sem cookie obrigatório')
   }
 
   const cobaltCandidates = (process.env.COBALT_API_URL ?? 'http://cobalt:9000')
@@ -79,14 +81,12 @@ async function logMusicBackendStatus (): Promise<void> {
 
   if (!cobaltOnline) {
     console.error(
-      '[ROBOZAP] Cobalt OFFLINE ou sem resposta POST',
-      '\n→ COBALT_API_URL=http://cobalt:9000',
-      '\n→ Com cookies no env, o yt-dlp ainda pode salvar o .tocar'
+      '[ROBOZAP] Cobalt local OFFLINE — .tocar usa COBALT_PUBLIC_URL / instâncias públicas'
     );
   }
 
   console.log(
-    '[ROBOZAP] .tocar v10: Cobalt-first (liubquanti+local) → yt-dlp fallback'
+    '[ROBOZAP] .tocar v11: Cobalt-first SEM cookie obrigatório → yt-dlp fallback'
   );
 }
 

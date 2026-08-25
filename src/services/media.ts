@@ -272,7 +272,7 @@ export class MediaService {
     outputPath: string,
     kind: DownloadKind
   ): Promise<void> {
-    ensureCobaltCookiesJson()
+    if (shouldUseYoutubeCookies()) ensureCobaltCookiesJson()
     const tokens = await fetchYtSessionTokens()
     const strategies = getStrategies(tokens)
     const formatArgs = buildFormatArgs(kind)
@@ -444,9 +444,9 @@ export class MediaService {
 
     return enqueueYouTubeDownload(async () => {
       const errors: string[] = []
-      ensureCobaltCookiesJson()
+      if (shouldUseYoutubeCookies()) ensureCobaltCookiesJson()
 
-      console.log('[MEDIA] Estratégia: Cobalt/Piped primeiro → yt-dlp fallback')
+      console.log('[MEDIA] Estratégia: Cobalt-first (sem cookie obrigatório) → yt-dlp fallback')
 
       for (let i = 0; i < candidates.length; i++) {
         const url = candidates[i]

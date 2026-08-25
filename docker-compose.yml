@@ -7,10 +7,10 @@ services:
       - .env
     environment:
       COBALT_API_URL: http://cobalt:9000/
-      YOUTUBE_USE_COOKIES: "true"
+      COBALT_PUBLIC_URL: https://api.cobalt.liubquanti.click
       YOUTUBE_SESSION_SERVER: "http://yt-session:8080"
       COBALT_SHARED_COOKIES_PATH: /data/cookies/cookies.json
-      COBALT_PUBLIC_URL: https://api.cobalt.liubquanti.click
+      # Cookies NÃO são obrigatórios — só se YOUTUBE_USE_COOKIES=true
       NO_PROXY: "localhost,127.0.0.1,cobalt,yt-session,mysql,filhote-mysql"
       no_proxy: "localhost,127.0.0.1,cobalt,yt-session,mysql,filhote-mysql"
     depends_on:

@@ -151,20 +151,13 @@ export function hasValidYoutubeCookies (): boolean {
 }
 
 /**
- * Usa cookies quando:
- * - YOUTUBE_USE_COOKIES=true, ou
- * - YOUTUBE_COOKIES estiver preenchido (auto),
- * - e NÃO estiver explicitamente false sem cookies no env
+ * Cookies manuais são OPCIONAIS (opt-in).
+ * Default: NÃO usa — o .tocar vai de Cobalt público/local, sem renovar cookie.
+ * Só ativa com YOUTUBE_USE_COOKIES=true + cookies válidos.
  */
 export function shouldUseYoutubeCookies (): boolean {
-  if (process.env.YOUTUBE_USE_COOKIES === 'false') {
-    // Mesmo com false, se YOUTUBE_COOKIES veio no env, o admin quer usar
-    return Boolean(getYoutubeCookieHeaderFromEnv())
+  if (process.env.YOUTUBE_USE_COOKIES !== 'true') {
+    return false
   }
-
-  if (process.env.YOUTUBE_USE_COOKIES === 'true') {
-    return hasValidYoutubeCookies()
-  }
-
   return hasValidYoutubeCookies()
 }

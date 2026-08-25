@@ -4,7 +4,6 @@ import { createWriteStream } from 'fs'
 import fs from 'fs'
 import { promisify } from 'util'
 import { pipeline } from 'stream/promises'
-import { hasValidYoutubeCookies } from './youtubeCookies'
 import { httpDirect, isProxyAuthError } from './http'
 
 const execAsync = promisify(exec)
