@@ -20,12 +20,56 @@ function parseCookieHeader (header: string): Array<{ name: string, value: string
     .filter((item): item is { name: string, value: string } => Boolean(item?.name))
 }
 
-/** Converte cookies.json (formato Cobalt) para Netscape — usado pelo yt-dlp. */
+/** Lê o header de cookies do env YOUTUBE_COOKIES (string do navegador). */
+export function getYoutubeCookieHeaderFromEnv (): string | null {
+  const raw = process.env.YOUTUBE_COOKIES?.trim()
+  if (!raw || raw.length < 20) return null
+  return raw
+}
+
+/**
+ * Garante cookies.json no formato Cobalt a partir de YOUTUBE_COOKIES.
+ * Retorna o caminho do JSON se houver cookies válidos.
+ */
+export function ensureCobaltCookiesJson (): string | null {
+  const jsonPath = process.env.COBALT_COOKIES_JSON?.trim() || COOKIE_FILE
+  const fromEnv = getYoutubeCookieHeaderFromEnv()
+
+  if (fromEnv) {
+    try {
+      fs.writeFileSync(
+        jsonPath,
+        JSON.stringify({ youtube: [fromEnv] }, null, 2),
+        'utf-8'
+      )
+      return jsonPath
+    } catch (error) {
+      console.warn('[COOKIES] Falha ao gravar cookies.json a partir do env:', error)
+    }
+  }
+
+  if (fs.existsSync(jsonPath)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf-8')) as { youtube?: string[] }
+      if (typeof raw.youtube?.[0] === 'string' && raw.youtube[0].trim().length > 20) {
+        return jsonPath
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return null
+}
+
+/** Converte cookies (env ou cookies.json) para Netscape — usado pelo yt-dlp. */
 export function ensureYtDlpCookiesFile (): string | null {
   const explicit = process.env.YTDLP_COOKIES_PATH?.trim()
   if (explicit && fs.existsSync(explicit)) {
     return explicit
   }
+
+  ensureCobaltCookiesJson()
 
   const jsonPath = process.env.COBALT_COOKIES_JSON?.trim() || COOKIE_FILE
   if (!fs.existsSync(jsonPath)) {
@@ -45,7 +89,7 @@ export function ensureYtDlpCookiesFile (): string | null {
     const expires = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 180
     const lines = [
       '# Netscape HTTP Cookie File',
-      '# Generated for yt-dlp from cookies.json'
+      '# Generated for yt-dlp from cookies'
     ]
 
     for (const cookie of parseCookieHeader(header)) {
@@ -65,13 +109,15 @@ export function ensureYtDlpCookiesFile (): string | null {
     fs.writeFileSync(NETSCAPE_FILE, lines.join('\n') + '\n', 'utf-8')
     return NETSCAPE_FILE
   } catch (error) {
-    console.warn('[COOKIES] Falha ao converter cookies.json para yt-dlp:', error)
+    console.warn('[COOKIES] Falha ao converter cookies para yt-dlp:', error)
     return fs.existsSync(NETSCAPE_FILE) ? NETSCAPE_FILE : null
   }
 }
 
-/** cookies.json existe e tem conteúdo real (não array vazio). */
+/** Tem cookies válidos (env YOUTUBE_COOKIES ou cookies.json). */
 export function hasValidYoutubeCookies (): boolean {
+  if (getYoutubeCookieHeaderFromEnv()) return true
+
   const jsonPath = process.env.COBALT_COOKIES_JSON?.trim() || COOKIE_FILE
   if (!fs.existsSync(jsonPath)) return false
 
@@ -84,10 +130,21 @@ export function hasValidYoutubeCookies (): boolean {
   }
 }
 
+/**
+ * Usa cookies quando:
+ * - YOUTUBE_USE_COOKIES=true, ou
+ * - YOUTUBE_COOKIES estiver preenchido (auto),
+ * - e NÃO estiver explicitamente false sem cookies no env
+ */
 export function shouldUseYoutubeCookies (): boolean {
-  if (process.env.YOUTUBE_USE_COOKIES === 'false') return false
+  if (process.env.YOUTUBE_USE_COOKIES === 'false') {
+    // Mesmo com false, se YOUTUBE_COOKIES veio no env, o admin quer usar
+    return Boolean(getYoutubeCookieHeaderFromEnv())
+  }
+
   if (process.env.YOUTUBE_USE_COOKIES === 'true') {
     return hasValidYoutubeCookies()
   }
-  return false
+
+  return hasValidYoutubeCookies()
 }

@@ -10,7 +10,7 @@ import {
   extractYouTubeVideoId,
   promiseAny
 } from './youtubeDownload'
-import { ensureYtDlpCookiesFile, shouldUseYoutubeCookies } from './youtubeCookies'
+import { ensureYtDlpCookiesFile, shouldUseYoutubeCookies, ensureCobaltCookiesJson, hasValidYoutubeCookies } from './youtubeCookies'
 
 const execAsync = promisify(exec)
 
@@ -268,19 +268,28 @@ export class MediaService {
     outputPath: string,
     kind: DownloadKind
   ): Promise<void> {
+    // Sempre materializa cookies do env antes
+    ensureCobaltCookiesJson()
     const tokens = await fetchYtSessionTokens()
     const strategies = getStrategies(tokens)
     const formatArgs = buildFormatArgs(kind)
     const cookiesFile = shouldUseYoutubeCookies() ? ensureYtDlpCookiesFile() : null
     const cookiesArg = cookiesFile ? `--cookies ${shellQuote(cookiesFile)}` : ''
-    let lastError: Error | null = null
+    const proxyUrl = (process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '').trim()
+    const proxyArg = proxyUrl ? `--proxy ${shellQuote(proxyUrl)}` : ''
 
-    // Atualiza yt-dlp uma vez por processo (best-effort)
+    console.log(
+      `[YT-DLP] Setup: cookies=${cookiesFile ? 'SIM' : 'NÃO'} | proxy=${proxyUrl ? 'SIM' : 'NÃO'} | session=${tokens ? 'SIM' : 'NÃO'}`
+    )
+
+    if (!cookiesFile && !tokens) {
+      console.warn('[YT-DLP] Sem cookies e sem yt-session — YouTube provavelmente vai bloquear')
+    }
+
+    let lastError: Error | null = null
     await maybeUpdateYtDlp()
 
     for (const strategy of strategies) {
-      const proxyUrl = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || ''
-      const proxyArg = proxyUrl ? `--proxy ${shellQuote(proxyUrl)}` : ''
       const outTemplate = kind === 'audio'
         ? shellQuote(outputPath.replace(/\.mp3$/i, '') + '.%(ext)s')
         : shellQuote(outputPath)
@@ -293,7 +302,7 @@ export class MediaService {
         '--geo-bypass',
         '--retries', '2',
         '--fragment-retries', '2',
-        '--socket-timeout', '15',
+        '--socket-timeout', '20',
         proxyArg,
         cookiesArg,
         strategy.extraArgs,
@@ -303,13 +312,32 @@ export class MediaService {
         outTemplate
       ].filter(Boolean).join(' ')
 
-      console.log(`[YT-DLP] Tentativa (${strategy.name})${cookiesFile ? ' + cookies' : ''}: ${url}`)
+      console.log(
+        `[YT-DLP] Tentativa (${strategy.name})${cookiesFile ? ' +cookies' : ''}${proxyUrl ? ' +proxy' : ''}: ${url}`
+      )
 
       try {
-        await execAsync(command, {
+        const { stderr } = await execAsync(command, {
           maxBuffer: 12 * 1024 * 1024,
-          timeout: 45000
+          timeout: 60000,
+          env: {
+            ...process.env,
+            // Garante proxy também via env do processo filho
+            ...(proxyUrl
+              ? {
+                  HTTP_PROXY: proxyUrl,
+                  HTTPS_PROXY: proxyUrl,
+                  http_proxy: proxyUrl,
+                  https_proxy: proxyUrl
+                }
+              : {})
+          }
         })
+
+        if (stderr) {
+          const hint = stderr.split('\n').filter(Boolean).slice(-3).join(' | ')
+          if (hint) console.log(`[YT-DLP] stderr: ${hint.slice(0, 400)}`)
+        }
 
         if (kind === 'audio') {
           const stem = outputPath.replace(/\.mp3$/i, '')
@@ -376,8 +404,8 @@ export class MediaService {
   }
 
   /**
-   * Proxies + yt-dlp em paralelo no 1º candidato.
-   * No máximo 2 candidatos — evita os 3+ minutos de tortura.
+   * Com cookies/proxy: yt-dlp PRIMEIRO (caminho que funciona no teu setup).
+   * Sem isso: proxies públicos + yt-dlp em paralelo.
    */
   async downloadMusic (
     urlOrCandidates: string | string[],
@@ -389,6 +417,12 @@ export class MediaService {
 
     return enqueueYouTubeDownload(async () => {
       const errors: string[] = []
+      ensureCobaltCookiesJson()
+      const hasCookies = hasValidYoutubeCookies() && shouldUseYoutubeCookies()
+      const hasProxy = Boolean((process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '').trim())
+      const preferYtDlp = hasCookies || hasProxy
+
+      console.log(`[MEDIA] Estratégia: preferYtDlp=${preferYtDlp} cookies=${hasCookies} proxy=${hasProxy}`)
 
       for (let i = 0; i < candidates.length; i++) {
         const url = candidates[i]
@@ -398,25 +432,55 @@ export class MediaService {
         const ytdlpTemp = `${outputPath}.ytdlp.${i}.tmp`
 
         try {
-          const winner = await promiseAny([
-            downloadYouTubeAudioProxy(url, proxyTemp)
-              .then(() => 'proxy' as const),
-            this.runYtDlp(url, ytdlpTemp, 'audio')
-              .then(() => 'ytdlp' as const)
-          ])
+          if (preferYtDlp) {
+            // Caminho principal: yt-dlp com cookies + proxy residencial
+            try {
+              await this.runYtDlp(url, ytdlpTemp, 'audio')
+              if (fs.existsSync(ytdlpTemp) && fs.statSync(ytdlpTemp).size >= 8192) {
+                if (fs.existsSync(outputPath)) safeUnlink(outputPath)
+                fs.renameSync(ytdlpTemp, outputPath)
+                console.log(`[MEDIA] Áudio OK via yt-dlp (candidato ${i + 1})`)
+                return url
+              }
+            } catch (ytdlpError: unknown) {
+              const message = ytdlpError instanceof Error ? ytdlpError.message : String(ytdlpError)
+              console.error(`[MEDIA] yt-dlp falhou, tentando proxies:`, message.slice(0, 300))
+              errors.push(`ytdlp[${i}]: ${message}`)
+            }
 
-          const source = winner === 'proxy' ? proxyTemp : ytdlpTemp
-          const other = winner === 'proxy' ? ytdlpTemp : proxyTemp
+            try {
+              await downloadYouTubeAudioProxy(url, proxyTemp)
+              if (fs.existsSync(proxyTemp) && fs.statSync(proxyTemp).size >= 8192) {
+                if (fs.existsSync(outputPath)) safeUnlink(outputPath)
+                fs.renameSync(proxyTemp, outputPath)
+                console.log(`[MEDIA] Áudio OK via proxy (candidato ${i + 1})`)
+                return url
+              }
+            } catch (proxyError: unknown) {
+              const message = proxyError instanceof Error ? proxyError.message : String(proxyError)
+              errors.push(`proxy[${i}]: ${message}`)
+            }
+          } else {
+            const winner = await promiseAny([
+              downloadYouTubeAudioProxy(url, proxyTemp).then(() => 'proxy' as const),
+              this.runYtDlp(url, ytdlpTemp, 'audio').then(() => 'ytdlp' as const)
+            ])
 
-          if (!fs.existsSync(source) || fs.statSync(source).size < 8192) {
-            throw new Error('Arquivo inválido após download')
+            const source = winner === 'proxy' ? proxyTemp : ytdlpTemp
+            const other = winner === 'proxy' ? ytdlpTemp : proxyTemp
+
+            if (!fs.existsSync(source) || fs.statSync(source).size < 8192) {
+              throw new Error('Arquivo inválido após download')
+            }
+
+            if (fs.existsSync(outputPath)) safeUnlink(outputPath)
+            fs.renameSync(source, outputPath)
+            safeUnlink(other)
+            console.log(`[MEDIA] Áudio OK via ${winner} (candidato ${i + 1})`)
+            return url
           }
 
-          if (fs.existsSync(outputPath)) safeUnlink(outputPath)
-          fs.renameSync(source, outputPath)
-          safeUnlink(other)
-          console.log(`[MEDIA] Áudio OK via ${winner} (candidato ${i + 1})`)
-          return url
+          throw new Error(errors[errors.length - 1] || 'download falhou')
         } catch (error: unknown) {
           safeUnlink(proxyTemp)
           safeUnlink(ytdlpTemp)

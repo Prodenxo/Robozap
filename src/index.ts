@@ -5,8 +5,14 @@ import { handleWebhook } from './webhooks/evolution';
 dotenv.config();
 
 import { probeCobaltHealth } from './services/youtubeDownload';
+import {
+  ensureCobaltCookiesJson,
+  ensureYtDlpCookiesFile,
+  shouldUseYoutubeCookies,
+  hasValidYoutubeCookies
+} from './services/youtubeCookies';
 
-const MUSIC_BUILD = '2026-08-tocar-fastfail-v5';
+const MUSIC_BUILD = '2026-08-tocar-proxy-fix-v7';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -33,6 +39,20 @@ app.post('/webhook/evolution', async (req, res) => {
 async function logMusicBackendStatus (): Promise<void> {
   console.log(`[ROBOZAP] Music build: ${MUSIC_BUILD}`);
 
+  // Materializa cookies do env → cookies.json + netscape pro yt-dlp
+  const jsonPath = ensureCobaltCookiesJson()
+  const netscapePath = shouldUseYoutubeCookies() ? ensureYtDlpCookiesFile() : null
+  console.log(
+    `[ROBOZAP] Cookies YouTube: ${hasValidYoutubeCookies() ? 'SIM' : 'NÃO'} | ` +
+    `usar=${shouldUseYoutubeCookies()} | json=${jsonPath || 'none'} | ytdlp=${netscapePath || 'none'}`
+  )
+
+  if (process.env.HTTP_PROXY || process.env.HTTPS_PROXY) {
+    console.log('[ROBOZAP] HTTP_PROXY ativo (yt-dlp vai usar)')
+  } else {
+    console.warn('[ROBOZAP] HTTP_PROXY AUSENTE — YouTube bloqueia IP de datacenter')
+  }
+
   const cobaltCandidates = (process.env.COBALT_API_URL ?? 'http://cobalt:9000')
     .split(',')
     .map((value) => value.trim().replace(/\/$/, ''))
@@ -54,15 +74,14 @@ async function logMusicBackendStatus (): Promise<void> {
 
   if (!cobaltOnline) {
     console.error(
-      '[ROBOZAP] Cobalt OFFLINE ou sem resposta POST — .tocar vai falhar',
-      '\n→ Easypanel (mesmo projeto): COBALT_API_URL=http://cobalt:9000',
-      '\n→ Apps separados: use o hostname interno do serviço cobalt',
-      '\n→ yt-session quebrado (503) NÃO afeta se Cobalt tiver cookies'
+      '[ROBOZAP] Cobalt OFFLINE ou sem resposta POST',
+      '\n→ COBALT_API_URL=http://cobalt:9000',
+      '\n→ Com cookies no env, o yt-dlp ainda pode salvar o .tocar'
     );
   }
 
   console.log(
-    '[ROBOZAP] .tocar v4: multi-candidato + Cobalt/Piped/Invidious race + yt-dlp + blacklist'
+    '[ROBOZAP] .tocar v6: cookies env + yt-session + proxy + fail-fast'
   );
 }
 

@@ -50,4 +50,6 @@ COPY --from=builder /app/assets ./assets
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy && (npx prisma db push --accept-data-loss || echo '[ROBOZAP] prisma db push falhou, subindo mesmo assim') && exec npm start"]
+# Prisma não usa proxy (SOCKS/HTTP quebra generate/push).
+# O app (yt-dlp) PRECISA do HTTP_PROXY — senão YouTube bloqueia o IP do servidor.
+CMD ["sh", "-c", "(env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u ALL_PROXY -u all_proxy npx prisma db push --accept-data-loss || echo '[ROBOZAP] prisma db push falhou, subindo mesmo assim') && exec npm start"]
