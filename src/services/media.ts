@@ -10,7 +10,7 @@ import {
   promiseAny
 } from './youtubeDownload'
 import { ensureYtDlpCookiesFile, shouldUseYoutubeCookies, ensureCobaltCookiesJson, hasValidYoutubeCookies } from './youtubeCookies'
-import { httpDirect, isProxyAuthError } from './http'
+import { httpDirect, isProxyAuthError, getYtDlpProxyUrl } from './http'
 
 const execAsync = promisify(exec)
 
@@ -279,7 +279,7 @@ export class MediaService {
     const formatArgs = buildFormatArgs(kind)
     const cookiesFile = shouldUseYoutubeCookies() ? ensureYtDlpCookiesFile() : null
     const cookiesArg = cookiesFile ? `--cookies ${shellQuote(cookiesFile)}` : ''
-    const proxyUrl = (process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '').trim()
+    const proxyUrl = getYtDlpProxyUrl()
 
     // Se o proxy já deu 407 nesta sessão, nem tenta de novo
     const tryProxyFirst = Boolean(proxyUrl) && !proxyAuthFailedThisProcess
@@ -347,6 +347,8 @@ export class MediaService {
           delete childEnv.https_proxy
           delete childEnv.ALL_PROXY
           delete childEnv.all_proxy
+          delete childEnv.YTDLP_HTTP_PROXY
+          delete childEnv.MUSIC_HTTP_PROXY
         }
 
         try {
@@ -445,7 +447,7 @@ export class MediaService {
       const errors: string[] = []
       ensureCobaltCookiesJson()
       const hasCookies = hasValidYoutubeCookies() && shouldUseYoutubeCookies()
-      const hasProxy = Boolean((process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '').trim())
+      const hasProxy = Boolean(getYtDlpProxyUrl())
       const preferYtDlp = hasCookies
       console.log(`[MEDIA] Estratégia: preferYtDlp=${preferYtDlp} cookies=${hasCookies} proxyEnv=${hasProxy} proxyBroken=${proxyAuthFailedThisProcess}`)
 

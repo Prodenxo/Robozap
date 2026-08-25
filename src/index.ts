@@ -1,18 +1,23 @@
-import express from 'express';
-import dotenv from 'dotenv';
-import { handleWebhook } from './webhooks/evolution';
+import './proxyBootstrap'
+import express from 'express'
+import dotenv from 'dotenv'
+import { handleWebhook } from './webhooks/evolution'
 
-dotenv.config();
+dotenv.config()
 
-import { probeCobaltHealth } from './services/youtubeDownload';
+// Garante de novo após dotenv (caso .env reinsira HTTP_PROXY)
+import './proxyBootstrap'
+
+import { probeCobaltHealth } from './services/youtubeDownload'
 import {
   ensureCobaltCookiesJson,
   ensureYtDlpCookiesFile,
   shouldUseYoutubeCookies,
   hasValidYoutubeCookies
-} from './services/youtubeCookies';
+} from './services/youtubeCookies'
+import { getYtDlpProxyUrl } from './proxyBootstrap'
 
-const MUSIC_BUILD = '2026-08-tocar-proxy407-v8';
+const MUSIC_BUILD = '2026-08-tocar-noproxy-v9'
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -47,10 +52,10 @@ async function logMusicBackendStatus (): Promise<void> {
     `usar=${shouldUseYoutubeCookies()} | json=${jsonPath || 'none'} | ytdlp=${netscapePath || 'none'}`
   )
 
-  if (process.env.HTTP_PROXY || process.env.HTTPS_PROXY) {
-    console.log('[ROBOZAP] HTTP_PROXY ativo (yt-dlp vai usar)')
+  if (getYtDlpProxyUrl()) {
+    console.log('[ROBOZAP] Proxy guardado só pro yt-dlp (WhatsApp/Evolution SEM proxy)')
   } else {
-    console.warn('[ROBOZAP] HTTP_PROXY AUSENTE — YouTube bloqueia IP de datacenter')
+    console.log('[ROBOZAP] Sem proxy — WhatsApp/Evolution direto; yt-dlp com cookies')
   }
 
   const cobaltCandidates = (process.env.COBALT_API_URL ?? 'http://cobalt:9000')

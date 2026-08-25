@@ -1,20 +1,27 @@
 import axios from 'axios'
+import http from 'http'
+import https from 'https'
+import { getYtDlpProxyUrl } from '../proxyBootstrap'
 
 /**
- * Axios que NUNCA usa HTTP_PROXY do ambiente.
- * Proxy residencial quebrado (407) não pode derrubar Cobalt local,
- * Piped, Invidious nem a Evolution API.
+ * Axios que NUNCA usa proxy.
+ * Agentes explícitos + proxy:false — Evolution, Cobalt local, Piped, etc.
  */
 export const httpDirect = axios.create({
   proxy: false,
-  timeout: 30000,
-  // Impede o Node de herdar HTTP_PROXY/HTTPS_PROXY
-  // (axios respeita proxy:false; adapters ainda podem ler env em alguns casos)
+  timeout: 60000,
+  httpAgent: new http.Agent({ keepAlive: true }),
+  httpsAgent: new https.Agent({ keepAlive: true }),
   transitional: { clarifyTimeoutError: true }
 })
 
-// Garante que requests não peguem proxy via env do undici/axios
 httpDirect.defaults.proxy = false
+
+// Cinto e suspensório: cada request força proxy:false
+httpDirect.interceptors.request.use((config) => {
+  config.proxy = false
+  return config
+})
 
 export function isProxyAuthError (message: string): boolean {
   const lower = message.toLowerCase()
@@ -22,6 +29,10 @@ export function isProxyAuthError (message: string): boolean {
     lower.includes('407') ||
     lower.includes('proxy authentication') ||
     lower.includes('proxy authentication required') ||
-    lower.includes('tunnel connection failed')
+    lower.includes('tunnel connection failed') ||
+    lower.includes('not in your list')
   )
 }
+
+/** Proxy só para yt-dlp (se ainda válido). */
+export { getYtDlpProxyUrl }
