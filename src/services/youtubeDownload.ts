@@ -12,41 +12,34 @@ const INSTANCE_CACHE_MS = 30 * 60 * 1000
 const BLACKLIST_MS = 15 * 60 * 1000
 const BLACKLIST_SOFT_MS = 2 * 60 * 1000
 const COBALT_WINNER_CACHE_MS = 45 * 60 * 1000
-const COBALT_PARALLEL_POOL = 3
-const COBALT_REQUEST_TIMEOUT_MS = 30000
-/** Tempo total pra Cobalt baixar (API + stream). Log mostrou OK depois de ~25s+ — precisa folga. */
-const COBALT_PHASE_MS = 55000
-const PHASE_TIMEOUT_MS = 25000
+const COBALT_PARALLEL_POOL = 2
+/** Timeout do POST Cobalt (API). Stream do arquivo tem timeout próprio. */
+const COBALT_REQUEST_TIMEOUT_MS = 18000
+/** Tentativa única no vencedor conhecido. */
+const COBALT_WINNER_PHASE_MS = 40000
+const COBALT_PHASE_MS = 45000
+const PHASE_TIMEOUT_MS = 20000
 const MIN_AUDIO_BYTES = 8 * 1024
 
-/** Instâncias públicas conhecidas por funcionar (ordem = prioridade). */
+/** Só instâncias que já provaram no teu servidor — sem mortas que só atrasam log. */
 const TRUSTED_COBALT_PUBLIC = [
-  'https://api.cobalt.liubquanti.click',
-  'https://api.cobalt.blackcat.sweeux.org',
-  'https://co.wuk.sh',
-  'https://cobalt-api.kwiatekmieniany.pl',
-  'https://api.cobalt.solidsoftware.dev'
+  'https://api.cobalt.liubquanti.click'
 ]
 
 const FALLBACK_PIPED_BASES = [
   'https://api-piped.mha.fi',
-  'https://api.piped.private.coffee',
-  'https://pipedapi.kavin.rocks'
+  'https://api.piped.private.coffee'
 ]
 
 const FALLBACK_INVIDIOUS_BASES = [
   'https://inv.tux.pizza',
-  'https://inv.nadeko.net',
-  'https://invidious.nerdvpn.de'
+  'https://inv.nadeko.net'
 ]
 
 const FALLBACK_COBALT_PUBLIC = [
   ...TRUSTED_COBALT_PUBLIC,
-  'https://api.cobalt.best',
-  'https://cobalt-backend.canine.tools',
-  'https://api.qwkuns.me',
-  'https://fox.kittycat.boo',
-  'https://dog.kittycat.boo'
+  'https://api.cobalt.blackcat.sweeux.org',
+  'https://co.wuk.sh'
 ]
 
 const COBALT_JWT_BASES = new Set([
@@ -315,10 +308,10 @@ interface CobaltRequestBody {
 }
 
 const COBALT_REQUEST_VARIANTS: Array<Partial<CobaltRequestBody>> = [
+  // 64kbps = arquivo menor = download+upload WhatsApp bem mais rápido
+  { audioFormat: 'mp3', audioBitrate: '64', youtubeBetterAudio: false },
   { audioFormat: 'mp3', audioBitrate: '128', youtubeBetterAudio: false },
-  { audioFormat: 'mp3', audioBitrate: '192', youtubeBetterAudio: true },
-  { audioFormat: 'best', youtubeBetterAudio: true },
-  { audioFormat: 'mp3', audioBitrate: '320', youtubeBetterAudio: false }
+  { audioFormat: 'best', youtubeBetterAudio: false }
 ]
 
 function getCobaltAuthHeaders (): Record<string, string> {
@@ -381,15 +374,17 @@ async function resolveCobaltBases (): Promise<string[]> {
   const extraPublic = envList('COBALT_PUBLIC_URL')
   const localBases = fromEnv.length ? fromEnv : ['http://cobalt:9000']
 
-  // Feed dinâmico é lento/instável — não bloqueia e não vai no topo
+  // Feed dinâmico OFF por padrão (DNS lento / 403). Liga com MUSIC_FETCH_COBALT_FEED=true
   let dynamic: string[] = []
-  try {
-    dynamic = await Promise.race([
-      fetchDynamicCobaltInstances(),
-      new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 1500))
-    ])
-  } catch {
-    dynamic = []
+  if (process.env.MUSIC_FETCH_COBALT_FEED === 'true') {
+    try {
+      dynamic = await Promise.race([
+        fetchDynamicCobaltInstances(),
+        new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 800))
+      ])
+    } catch {
+      dynamic = []
+    }
   }
 
   const hasApiKey = Boolean(process.env.COBALT_API_KEY?.trim())
@@ -400,7 +395,6 @@ async function resolveCobaltBases (): Promise<string[]> {
     ...FALLBACK_COBALT_PUBLIC
   ]).filter((base) => hasApiKey || !COBALT_JWT_BASES.has(normalizeApiBase(base)))
 
-  // Público ANTES do local: local sem session só gasta slot com youtube.login
   let ordered = uniqueBases([...publicBases, ...localBases])
 
   if (
@@ -409,10 +403,20 @@ async function resolveCobaltBases (): Promise<string[]> {
     !isBlacklisted(cobaltWinnerCache.base)
   ) {
     ordered = uniqueBases([cobaltWinnerCache.base, ...ordered])
-    console.log(`[COBALT] Priorizando vencedor: ${cobaltWinnerCache.base}`)
   }
 
   return filterLive(ordered)
+}
+
+function getCachedWinner (): string | null {
+  if (
+    cobaltWinnerCache &&
+    Date.now() - cobaltWinnerCache.fetchedAt < COBALT_WINNER_CACHE_MS &&
+    !isBlacklisted(cobaltWinnerCache.base)
+  ) {
+    return normalizeApiBase(cobaltWinnerCache.base)
+  }
+  return null
 }
 
 function pickPreferredCobaltBases (ordered: string[]): string[] {
@@ -421,7 +425,6 @@ function pickPreferredCobaltBases (ordered: string[]): string[] {
     const n = normalizeApiBase(base)
     if (envPublic.includes(n)) return true
     if (TRUSTED_COBALT_PUBLIC.some((t) => normalizeApiBase(t) === n)) return true
-    if (cobaltWinnerCache && normalizeApiBase(cobaltWinnerCache.base) === n) return true
     return false
   })
   return (preferred.length ? preferred : ordered).slice(0, COBALT_PARALLEL_POOL)
@@ -437,7 +440,7 @@ async function requestCobaltAudio (
     url: normalizeYoutubeWatchUrl(youtubeUrl),
     downloadMode: 'audio',
     audioFormat: 'mp3',
-    audioBitrate: '128',
+    audioBitrate: '64',
     youtubeBetterAudio: false,
     ...bodyOverrides
   }
@@ -484,10 +487,12 @@ async function attemptCobaltDownload (
   if (signal?.aborted) throw new Error('abort')
 
   const tempPath = uniqueTemp(outputPath, 'cobalt')
+  const t0 = Date.now()
 
   try {
     const { downloadUrl } = await requestCobaltAudio(base, url, variant)
     if (signal?.aborted) throw new Error('abort')
+    const tApi = Date.now() - t0
 
     await downloadStreamToFile(
       downloadUrl,
@@ -498,6 +503,10 @@ async function attemptCobaltDownload (
     )
 
     if (signal?.aborted) throw new Error('abort')
+    const size = fs.existsSync(tempPath) ? fs.statSync(tempPath).size : 0
+    console.log(
+      `[COBALT] ${normalizeApiBase(base)} api=${tApi}ms stream=${Date.now() - t0 - tApi}ms size=${Math.round(size / 1024)}KB`
+    )
     moveToOutput(tempPath, outputPath)
     return normalizeApiBase(base)
   } catch (error: unknown) {
@@ -573,11 +582,9 @@ async function tryCobaltRace (
 }
 
 async function tryCobaltDownload (url: string, outputPath: string): Promise<void> {
+  const t0 = Date.now()
   const ordered = await resolveCobaltBases()
   if (!ordered.length) throw new Error('Nenhuma instância Cobalt disponível')
-
-  const preferred = pickPreferredCobaltBases(ordered)
-  console.log(`[COBALT] Preferidas: ${preferred.join(', ')}`)
 
   const runWithBudget = async (bases: string[], ms: number, label: string): Promise<void> => {
     const abort = new AbortController()
@@ -600,23 +607,45 @@ async function tryCobaltDownload (url: string, outputPath: string): Promise<void
     }
   }
 
+  // Atalho: se já sabemos o vencedor, tenta SÓ ele (sem corrida com mortas)
+  const winner = getCachedWinner()
+  if (winner) {
+    console.log(`[COBALT] Atalho vencedor: ${winner}`)
+    try {
+      await runWithBudget([winner], COBALT_WINNER_PHASE_MS, 'cobalt-winner')
+      console.log(`[COBALT] Pronto em ${Date.now() - t0}ms (vencedor)`)
+      return
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[COBALT] Vencedor falhou (${Date.now() - t0}ms): ${message.slice(0, 160)}`)
+    }
+  }
+
+  const preferred = pickPreferredCobaltBases(ordered)
+    .filter((base) => normalizeApiBase(base) !== winner)
+  const pool = preferred.length ? preferred : ordered.slice(0, COBALT_PARALLEL_POOL)
+  console.log(`[COBALT] Preferidas: ${pool.join(', ')}`)
+
   try {
-    await runWithBudget(preferred, COBALT_PHASE_MS, 'cobalt-preferred')
+    await runWithBudget(pool, COBALT_PHASE_MS, 'cobalt-preferred')
+    console.log(`[COBALT] Pronto em ${Date.now() - t0}ms`)
     return
   } catch (firstError: unknown) {
     const message = firstError instanceof Error ? firstError.message : String(firstError)
     console.warn(`[COBALT] Preferidas falharam: ${message.slice(0, 200)}`)
   }
 
-  const rest = ordered.filter(
-    (base) => !preferred.some((p) => normalizeApiBase(p) === normalizeApiBase(base))
-  ).slice(0, COBALT_PARALLEL_POOL)
+  const used = new Set([winner, ...pool].filter(Boolean).map((b) => normalizeApiBase(b as string)))
+  const rest = ordered
+    .filter((base) => !used.has(normalizeApiBase(base)))
+    .slice(0, COBALT_PARALLEL_POOL)
 
   if (!rest.length) {
     throw new Error('Cobalt preferido falhou e sem fallback')
   }
 
   await runWithBudget(rest, PHASE_TIMEOUT_MS, 'cobalt-fallback')
+  console.log(`[COBALT] Pronto em ${Date.now() - t0}ms (fallback)`)
 }
 
 // ─── Piped ────────────────────────────────────────────────
